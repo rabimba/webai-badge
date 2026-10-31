@@ -69,3 +69,5 @@ npm run build
 ```
 
 Push to `main` (or trigger the included `.github/workflows/deploy.yml` workflow) to publish automatically to **GitHub Pages**.
+
+> **One-time setup:** In the repository go to **Settings → Pages → Build and deployment → Source: "GitHub Actions"**. Every subsequent push to `main` then runs tests, builds `./dist`, and deploys automatically.
