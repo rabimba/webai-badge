@@ -50,6 +50,7 @@ const state = {
   sharpness: 0.35,
   useAiCutout: false,
   segmentedCanvas: null,
+  stickerOutline: true,
 
   name: 'Rabimba Karanjai',
   company: 'PayPal / GDE',
@@ -96,6 +97,7 @@ const state = {
 let latestPrimaryResult = null;
 let latestSecondResult = null;
 let webcamStream = null;
+let pulseNeoPixelChaseRef = null;
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -510,6 +512,11 @@ function bindEvents() {
     triggerEpaperRefreshAnimation();
   });
 
+  // Exposed later below (hoisted via function declaration)
+  window.__pulseNeoPixelChase = () => {
+    if (typeof pulseNeoPixelChaseRef === 'function') pulseNeoPixelChaseRef();
+  };
+
   // Smart Framing Presets
   $$('.preset-chip').forEach((btn) => {
     btn.addEventListener('click', () => {
@@ -683,6 +690,8 @@ function bindEvents() {
     );
     const resetBtn = $('#btnResetClassicLayout');
     if (resetBtn) resetBtn.hidden = !state.aiLayout.enabled;
+    const customizeRow = $('#aiCustomizeRow');
+    if (customizeRow) customizeRow.hidden = !state.aiLayout.enabled;
   };
 
   const applyAiDesignSpecToStudio = async (spec, engineUsed) => {
@@ -788,6 +797,7 @@ function bindEvents() {
         },
       });
       await applyAiDesignSpecToStudio(spec, engineUsed);
+      pulseNeoPixelChaseRef?.();
       appendConsoleLog({
         time: new Date().toLocaleTimeString(),
         msg: `AI Design applied (${engineUsed}): theme=${spec.layoutTheme}, backdrop=${spec.backdropPattern}, dither=${spec.ditherMode}.`,
@@ -906,9 +916,180 @@ function bindEvents() {
     if (reasonBox) reasonBox.hidden = true;
     $('#llmEngineStatus').textContent = 'Classic Layout Restored';
     syncAiPillsUI();
+    syncAiCustomizeRow();
     triggerEpaperRefreshAnimation();
     renderActiveBadgeCanvas();
   });
+
+  // Live-editable AI banner, tags, and accent ink
+  const syncAiCustomizeRow = () => {
+    const row = $('#aiCustomizeRow');
+    if (!row) return;
+    row.hidden = !state.aiLayout.enabled;
+    if (state.aiLayout.enabled) {
+      $('#inpAiHeader').value = state.aiLayout.headerBadge || '';
+      $('#inpAiTag1').value = state.aiLayout.tags?.[0] || '';
+      $('#inpAiTag2').value = state.aiLayout.tags?.[1] || '';
+      $$('.ai-ink-pill').forEach((p) =>
+        p.classList.toggle('active', p.getAttribute('data-aiink') === (state.aiLayout.accentInk || 'yellow'))
+      );
+    }
+  };
+
+  $('#inpAiHeader')?.addEventListener('input', (e) => {
+    state.aiLayout.headerBadge = e.target.value.toUpperCase().slice(0, 26);
+    renderActiveBadgeCanvas();
+  });
+  $('#inpAiTag1')?.addEventListener('input', (e) => {
+    state.aiLayout.tags[0] = e.target.value.toUpperCase().slice(0, 14);
+    renderActiveBadgeCanvas();
+  });
+  $('#inpAiTag2')?.addEventListener('input', (e) => {
+    state.aiLayout.tags[1] = e.target.value.toUpperCase().slice(0, 14);
+    renderActiveBadgeCanvas();
+  });
+  $$('.ai-ink-pill').forEach((pill) => {
+    pill.addEventListener('click', () => {
+      state.aiLayout.accentInk = pill.getAttribute('data-aiink');
+      $$('.ai-ink-pill').forEach((p) =>
+        p.classList.toggle('active', p === pill)
+      );
+      renderActiveBadgeCanvas();
+    });
+  });
+
+  // Sticker Outline Toggle (die-cut 4-ink border around cutout subject)
+  $('#btnToggleStickerOutline')?.addEventListener('click', () => {
+    state.stickerOutline = !state.stickerOutline;
+    $('#btnToggleStickerOutline').classList.toggle('active', state.stickerOutline);
+    $('#stickerOutlineStateText').textContent = state.stickerOutline ? 'ON' : 'OFF';
+    renderActiveBadgeCanvas();
+  });
+
+  // Direct Drag-to-Pan & Wheel-Zoom on the badge photo box
+  const setupCanvasPanZoom = () => {
+    const bezel = $('#epaperBezel');
+    const previewCanvas = $('#badgePreviewCanvas');
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+
+    const inPhotoBox = (ev) => {
+      const rect = bezel.getBoundingClientRect();
+      const rx = (ev.clientX - rect.left) / rect.width;
+      const ry = (ev.clientY - rect.top) / rect.height;
+      // PHOTO_BOX upright coords: x 47..433, y 17..406
+      const bx = rx * 480;
+      const by = ry * 800;
+      return bx >= 47 && bx <= 433 && by >= 17 && by <= 406;
+    };
+
+    bezel.addEventListener('mousemove', (ev) => {
+      if (dragging) return;
+      bezel.classList.toggle('pan-ready', inPhotoBox(ev));
+    });
+
+    bezel.addEventListener('mousedown', (ev) => {
+      if (!inPhotoBox(ev)) return;
+      dragging = true;
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+      bezel.classList.add('panning');
+      bezel.classList.remove('pan-ready');
+      ev.preventDefault();
+    });
+
+    window.addEventListener('mousemove', (ev) => {
+      if (!dragging) return;
+      const rect = bezel.getBoundingClientRect();
+      const dx = ((ev.clientX - lastX) / rect.width) * 480 / 480;
+      const dy = ((ev.clientY - lastY) / rect.height) * 800 / 800;
+      lastX = ev.clientX;
+      lastY = ev.clientY;
+      state.panX = Math.max(-0.6, Math.min(0.6, state.panX + dx));
+      state.panY = Math.max(-0.6, Math.min(0.6, state.panY + dy));
+      syncCropSliders();
+      renderActiveBadgeCanvas();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      bezel.classList.remove('panning');
+    });
+
+    bezel.addEventListener('wheel', (ev) => {
+      if (!inPhotoBox(ev)) return;
+      ev.preventDefault();
+      const delta = ev.deltaY < 0 ? 0.08 : -0.08;
+      state.zoom = Math.max(0.8, Math.min(3.0, state.zoom + delta));
+      syncCropSliders();
+      renderActiveBadgeCanvas();
+    }, { passive: false });
+  };
+
+  setupCanvasPanZoom();
+
+  // Hold-to-Compare Classic preview
+  const holdCompare = $('#btnHoldCompare');
+  let holdTimer = null;
+  const startHold = (ev) => {
+    ev.preventDefault();
+    if (holdTimer) return;
+    holdTimer = setTimeout(() => {
+      const saved = { ...state, aiLayout: { ...state.aiLayout } };
+      state._holdSaved = saved;
+      state.aiLayout.enabled = false;
+      state.useAiCutout = false;
+      state.stickerOutline = false;
+      state.name = 'Rabimba Karanjai';
+      state.company = 'PayPal / GDE';
+      state.handle = '@rabimba';
+      state.forceCustomCard = false;
+      latestPrimaryResult = composePrimaryBadge(assets, state);
+      const pctx = $('#badgePreviewCanvas').getContext('2d');
+      pctx.clearRect(0, 0, 480, 800);
+      pctx.drawImage(latestPrimaryResult.previewCanvas, 0, 0);
+      $('#llmEngineStatus').textContent = 'Holding Classic Preview...';
+    }, 180);
+  };
+  const endHold = () => {
+    if (!holdTimer) return;
+    clearTimeout(holdTimer);
+    holdTimer = null;
+    if (state._holdSaved) {
+      const saved = state._holdSaved;
+      state.aiLayout = saved.aiLayout;
+      state.useAiCutout = saved.useAiCutout;
+      state.stickerOutline = saved.stickerOutline;
+      state.name = saved.name;
+      state.company = saved.company;
+      state.handle = saved.handle;
+      state._holdSaved = null;
+      $('#llmEngineStatus').textContent = state.aiLayout.enabled
+        ? `AI Theme • ${state.aiLayout.layoutTheme}`
+        : 'Classic Layout Active';
+      renderActiveBadgeCanvas();
+    }
+  };
+  holdCompare?.addEventListener('mousedown', startHold);
+  holdCompare?.addEventListener('touchstart', startHold, { passive: false });
+  holdCompare?.addEventListener('mouseup', endHold);
+  holdCompare?.addEventListener('mouseleave', endHold);
+  holdCompare?.addEventListener('touchend', endHold);
+
+  // NeoPixel perimeter chase animation
+  const pulseNeoPixelChaseImpl = () => {
+    const leds = $$('.neopixel');
+    leds.forEach((led, i) => {
+      setTimeout(() => {
+        led.classList.remove('chase');
+        void led.offsetWidth;
+        led.classList.add('chase');
+      }, i * 90);
+    });
+  };
+  pulseNeoPixelChaseRef = pulseNeoPixelChaseImpl;
 
   // Identity Inputs
   $('#inpName').addEventListener('input', (e) => {
@@ -1244,6 +1425,7 @@ function bindEvents() {
       });
       await badgeClient.setLEDs(state.ledColor);
       triggerEpaperRefreshAnimation();
+      pulseNeoPixelChaseRef?.();
       setTimeout(() => setFlashProgress(null), 2500);
     } catch (err) {
       setFlashProgress(null);
@@ -1300,6 +1482,7 @@ function bindEvents() {
       });
       await badgeClient.setLEDs(state.ledColor);
       triggerEpaperRefreshAnimation();
+      pulseNeoPixelChaseRef?.();
       setTimeout(() => setFlashProgress(null), 2500);
     } catch (err) {
       setFlashProgress(null);

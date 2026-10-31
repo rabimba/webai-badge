@@ -246,6 +246,76 @@ export function renderAiBadgeLayoutRGBA({ width = 480, height = 800, spec = {}, 
 }
 
 /**
+ * Dilates the cutout foreground alpha mask by `radius` pixels and paints a pure
+ * 4-ink outline ring (die-cut sticker border) between subject and backdrop.
+ * Foreground pixels (alpha >= 96) keep their original RGB; ring pixels become outlineInk.
+ */
+export function dilateAlphaMaskOutline(rgba, width, height, radius = 3, outlineInk = [255, 255, 255]) {
+  const out = new Uint8ClampedArray(rgba); // copy
+  const isFg = new Uint8Array(width * height);
+  for (let i = 0; i < width * height; i++) {
+    isFg[i] = rgba[i * 4 + 3] >= 96 ? 1 : 0;
+  }
+
+  // Multi-pass 8-neighborhood (Chebyshev) dilation for a square sticker ring
+  let grown = Uint8Array.from(isFg);
+  for (let pass = 0; pass < radius; pass++) {
+    const next = Uint8Array.from(grown);
+    for (let y = 0; y < height; y++) {
+      const y0 = Math.max(0, y - 1);
+      const y1 = Math.min(height - 1, y + 1);
+      for (let x = 0; x < width; x++) {
+        const i = y * width + x;
+        if (grown[i]) continue;
+        const x0 = Math.max(0, x - 1);
+        const x2 = Math.min(width - 1, x + 1);
+        let neighbor = false;
+        for (let ny = y0; ny <= y1 && !neighbor; ny++) {
+          for (let nx = x0; nx <= x2; nx++) {
+            if (grown[ny * width + nx]) {
+              neighbor = true;
+              break;
+            }
+          }
+        }
+        if (neighbor) next[i] = 1;
+      }
+    }
+    grown = next;
+  }
+
+  for (let i = 0; i < width * height; i++) {
+    if (grown[i] && !isFg[i]) {
+      out[i * 4] = outlineInk[0];
+      out[i * 4 + 1] = outlineInk[1];
+      out[i * 4 + 2] = outlineInk[2];
+      out[i * 4 + 3] = 255;
+    }
+  }
+  return out;
+}
+
+/**
+ * Opt-in AI theme parity overlay descriptor for the 2nd Screen (programme.epaper).
+ * Returns null when aiLayout is disabled/classic so the default template stays untouched.
+ */
+export function composeAiSecondScreenOverlay(aiLayout) {
+  if (!aiLayout || !aiLayout.enabled) return null;
+  const theme = AI_LAYOUT_THEMES[aiLayout.layoutTheme] || AI_LAYOUT_THEMES['cyber-pcb'];
+  const accentHex =
+    aiLayout.accentInk === 'red' ? '#db3727' : aiLayout.accentInk === 'white' ? '#ffffff' : '#ffcc33';
+  return {
+    borderColor: theme.cardBorder,
+    cardBg: theme.cardBg,
+    cardAccent: theme.cardAccent,
+    accentHex,
+    headerBadge: aiLayout.headerBadge || '',
+    tags: Array.isArray(aiLayout.tags) ? aiLayout.tags.slice(0, 2) : [],
+    themeId: theme.id,
+  };
+}
+
+/**
  * Draws the opt-in AI Visual Layout frame, header pill, themed middle card, and skill tags
  * onto the 480x800 badge canvas when `state.aiLayout?.enabled` is true.
  */

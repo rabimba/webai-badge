@@ -61,10 +61,15 @@
               2nd Screen (BTN1 / programme.epaper)
             </button>
           </div>
-          <label class="loupe-toggle" title="Hover over the badge screen to inspect individual 2-bit ePaper ink pixels">
-            <input type="checkbox" id="chkPixelLoupe" checked />
-            <span>8× Pixel Loupe</span>
-          </label>
+          <div class="stage-mode-group">
+            <button class="pill-btn" id="btnHoldCompare" title="Hold to preview the untouched classic badge">
+              ⇄ Hold: Compare Classic
+            </button>
+            <label class="loupe-toggle" title="Hover over the badge screen to inspect individual 2-bit ePaper ink pixels">
+              <input type="checkbox" id="chkPixelLoupe" checked />
+              <span>8× Pixel Loupe</span>
+            </label>
+          </div>
         </div>
 
         <!-- Physical PCB Enclosure -->
@@ -298,6 +303,32 @@
               </div>
             </div>
 
+            <!-- Live Editable AI Banner / Tags / Accent Ink (visible when an AI theme is active) -->
+            <div class="ai-customize-row" id="aiCustomizeRow" hidden>
+              <div class="ai-customize-grid">
+                <label class="input-group">
+                  <span>Header Banner</span>
+                  <input type="text" id="inpAiHeader" maxlength="26" placeholder="HW LAB // REV 2.6" />
+                </label>
+                <label class="input-group">
+                  <span>Tag 1</span>
+                  <input type="text" id="inpAiTag1" maxlength="14" placeholder="LITERT-LM" />
+                </label>
+                <label class="input-group">
+                  <span>Tag 2</span>
+                  <input type="text" id="inpAiTag2" maxlength="14" placeholder="WEBGPU" />
+                </label>
+              </div>
+              <div class="ai-sub-group">
+                <span class="field-label">ACCENT INK</span>
+                <div class="ai-mini-pills">
+                  <button type="button" class="ai-ink-pill" data-aiink="yellow">Yellow</button>
+                  <button type="button" class="ai-ink-pill" data-aiink="red">Red</button>
+                  <button type="button" class="ai-ink-pill" data-aiink="white">White</button>
+                </div>
+              </div>
+            </div>
+
             <div class="ai-reasoning-box" id="aiReasoningBox" hidden>
               <span class="ai-reasoning-label">AI ART DIRECTOR:</span>
               <span id="aiReasoningText"></span>
@@ -322,8 +353,15 @@
                 <input type="file" id="inputPhotoUpload" accept="image/*" hidden />
               </label>
               <button class="btn btn-secondary" id="btnWebcamCapture">📷 Webcam Capture</button>
-              <button class="btn btn-ai" id="btnToggleAiCutout" title="Segment people from background onto the WebAI geometric sunburst">
+              <button class="btn btn-ai" id="btnToggleAiCutout" title="Segment people from background onto the WebAI geometric yellow/red sunburst">
                 ✨ WebAI Background Cutout: <b id="aiCutoutStateText">OFF</b>
+              </button>
+              <button
+                class="btn btn-ghost active"
+                id="btnToggleStickerOutline"
+                title="Draw a crisp 4-ink die-cut sticker border between the segmented portrait and the backdrop"
+              >
+                🏷 Sticker Outline: <b id="stickerOutlineStateText">ON</b>
               </button>
             </div>
 

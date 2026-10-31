@@ -98,15 +98,20 @@ export function preprocessForBWYR(srcRgba, width, height, opts = {}) {
 
 /**
  * Dither a preprocessed Float32 RGB buffer (width x height x 3) into a 4-color BWYR RGBA Uint8ClampedArray
+ * @param {object} opts - { serpentine: boolean } — when true, alternate row scan direction
+ *   (boustrophedon) to eliminate diagonal error-diffusion streak artifacts.
  */
-export function ditherToBWYR(floatRgb, width, height, mode = 'atkinson') {
+export function ditherToBWYR(floatRgb, width, height, mode = 'atkinson', opts = {}) {
+  const serpentine = opts.serpentine !== false;
   const work = new Float32Array(floatRgb);
   const outRgba = new Uint8ClampedArray(width * height * 4);
 
   if (mode === 'bayer4') {
     for (let y = 0; y < height; y++) {
       const bRow = BAYER_4X4[y & 3];
-      for (let x = 0; x < width; x++) {
+      const ltr = !serpentine || y % 2 === 0;
+      for (let n = 0; n < width; n++) {
+        const x = ltr ? n : width - 1 - n;
         const p = (y * width + x) * 3;
         const bias = (bRow[x & 3] / 16 - 0.5) * 42;
         const r = Math.max(0, Math.min(255, work[p] + bias));
@@ -136,7 +141,9 @@ export function ditherToBWYR(floatRgb, width, height, mode = 'atkinson') {
   };
 
   for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
+    const ltr = !serpentine || y % 2 === 0;
+    for (let n = 0; n < width; n++) {
+      const x = ltr ? n : width - 1 - n;
       const p = (y * width + x) * 3;
       const oldR = Math.max(0, Math.min(255, work[p]));
       const oldG = Math.max(0, Math.min(255, work[p + 1]));
@@ -158,18 +165,21 @@ export function ditherToBWYR(floatRgb, width, height, mode = 'atkinson') {
       const eb = oldB - newB;
 
       if (isFloyd) {
-        addErr(x + 1, y, er, eg, eb, 7 / 16);
-        addErr(x - 1, y + 1, er, eg, eb, 3 / 16);
+        // Error direction mirrors with scan direction on serpentine rows
+        const dir = ltr ? 1 : -1;
+        addErr(x + dir, y, er, eg, eb, 7 / 16);
+        addErr(x - dir, y + 1, er, eg, eb, 3 / 16);
         addErr(x, y + 1, er, eg, eb, 5 / 16);
-        addErr(x + 1, y + 1, er, eg, eb, 1 / 16);
+        addErr(x + dir, y + 1, er, eg, eb, 1 / 16);
       } else {
         // Default: Atkinson (diffuses 6/8 of error for crisp high-contrast ePaper midtones)
+        const dir = ltr ? 1 : -1;
         const w = 1 / 8;
-        addErr(x + 1, y, er, eg, eb, w);
-        addErr(x + 2, y, er, eg, eb, w);
-        addErr(x - 1, y + 1, er, eg, eb, w);
+        addErr(x + dir, y, er, eg, eb, w);
+        addErr(x + 2 * dir, y, er, eg, eb, w);
+        addErr(x - dir, y + 1, er, eg, eb, w);
         addErr(x, y + 1, er, eg, eb, w);
-        addErr(x + 1, y + 1, er, eg, eb, w);
+        addErr(x + dir, y + 1, er, eg, eb, w);
         addErr(x, y + 2, er, eg, eb, w);
       }
     }

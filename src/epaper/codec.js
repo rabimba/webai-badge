@@ -29,16 +29,24 @@ export function crc32(bytes) {
 }
 
 export function nearestPaletteIndex(r, g, b) {
+  // Redmean perceptual distance with neutral-chroma guard:
+  // near-neutral pixels (low channel spread, e.g. dithered grays) must ramp
+  // only across Black <-> White and never speckle into the Yellow or Red inks.
+  const maxC = Math.max(r, g, b);
+  const minC = Math.min(r, g, b);
+  const isNeutral = maxC - minC < 30;
+
   let bestIdx = 0;
   let bestDist = Infinity;
   for (let i = 0; i < 4; i++) {
-    const pr = EPAPER_PALETTE[i][0];
-    const pg = EPAPER_PALETTE[i][1];
-    const pb = EPAPER_PALETTE[i][2];
-    const dr = r - pr;
-    const dg = g - pg;
-    const db = b - pb;
-    const dist = 2 * dr * dr + 4 * dg * dg + 3 * db * db;
+    const rMean = (r + EPAPER_PALETTE[i][0]) / 2;
+    const dr = r - EPAPER_PALETTE[i][0];
+    const dg = g - EPAPER_PALETTE[i][1];
+    const db = b - EPAPER_PALETTE[i][2];
+    let dist =
+      ((512 + rMean) * dr * dr) / 256 + 4 * dg * dg + ((767 - rMean) * db * db) / 256;
+    // Chroma guard: penalize chromatic inks for neutral inputs
+    if (isNeutral && (i === 2 || i === 3)) dist *= 2.6;
     if (dist < bestDist) {
       bestDist = dist;
       bestIdx = i;

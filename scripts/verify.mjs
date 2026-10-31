@@ -2,8 +2,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { decodeEpaperToRGBA, encodeRGBAToEpaper, crc32 } from '../src/epaper/codec.js';
-import { preprocessForBWYR, ditherToBWYR } from '../src/epaper/dither.js';
-import { encodeQRMatrix } from '../src/epaper/qrcode.js';
+import { preprocessForBWYR, ditherToBWYR } from '../src/epaper/dither.js';import { encodeQRMatrix } from '../src/epaper/qrcode.js';
 import { patchBootcde, formatCounterPreview, PERSON_ICON_B64 } from '../src/epaper/bootcde-patcher.js';
 import { createZipArchive, parseZipArchive } from '../src/storage/zip.js';
 import {
@@ -15,7 +14,9 @@ import {
   AI_LAYOUT_THEMES,
   renderProceduralBackdropRGBA,
   renderAiBadgeLayoutRGBA,
+  dilateAlphaMaskOutline,
 } from '../src/epaper/ai-layout.js';
+import { composeAiSecondScreenOverlay } from '../src/epaper/composer.js';
 
 // 1. Verify bit-exact 96,000-byte .epaper decode -> encode round-trip against hardware backup
 const rawEpaper = new Uint8Array(fs.readFileSync('backup/option1_stage_qr.epaper'));
@@ -149,3 +150,68 @@ assert.equal(
   480 * 800
 );
 console.log('[PASS] Opt-in 4-Ink AI Visual Layout & Procedural Backdrop Engine (96,000B verified)');
+
+// 9. Verify Serpentine Scan & Perceptual BWYR Dithering (CRITICAL: hardware CRC32 round-trip must stay bit-exact)
+const reencodedSerpentine = encodeRGBAToEpaper(decodeEpaperToRGBA(rawEpaper));
+assert.equal(reencodedSerpentine.crc, 1139474309, 'Serpentine dithering pipeline must not alter .epaper round-trip CRC');
+
+// Deterministic midtone patch: perceptual distance must never invent spurious red in neutral grays
+const grayPatch = new Uint8ClampedArray(48 * 48 * 4);
+for (let i = 0; i < 48 * 48; i++) {
+  const v = 128 + ((i % 7) - 3);
+  grayPatch[i * 4] = v; grayPatch[i * 4 + 1] = v; grayPatch[i * 4 + 2] = v; grayPatch[i * 4 + 3] = 255;
+}
+const grayPre = preprocessForBWYR(grayPatch, 48, 48, { contrast: 1.0, brightness: 1.0, warmthBlend: 0.0, sharpness: 0.0 });
+for (const serpentine of [true, false]) {
+  const dith = ditherToBWYR(grayPre, 48, 48, 'floyd-steinberg', { serpentine });
+  assert.equal(dith.length, 48 * 48 * 4);
+  for (let i = 0; i < 48 * 48; i++) {
+    const r = dith[i * 4], g = dith[i * 4 + 1], b = dith[i * 4 + 2];
+    const isRed = r === 0xdb && g === 0x37 && b === 0x27;
+    assert.ok(!isRed, `Neutral gray must not quantize to Signal Red (serpentine=${serpentine})`);
+  }
+}
+const serpOn = ditherToBWYR(grayPre, 48, 48, 'floyd-steinberg', { serpentine: true });
+const serpOff = ditherToBWYR(grayPre, 48, 48, 'floyd-steinberg', { serpentine: false });
+let differs = 0;
+for (let i = 0; i < serpOn.length; i++) if (serpOn[i] !== serpOff[i]) differs++;
+assert.ok(differs > 0, 'Serpentine scan should change error diffusion pattern vs raster scan');
+console.log('[PASS] Serpentine scan & perceptual BWYR palette distance (hardware CRC32 bit-exact)');
+
+// 10. Verify Die-Cut Sticker Outline Mask Dilation (pure 4-ink outline ring around cutout silhouette)
+const tinyMask = new Uint8ClampedArray(16 * 16 * 4);
+for (let y = 6; y < 10; y++) {
+  for (let x = 6; x < 10; x++) {
+    const idx = (y * 16 + x) * 4;
+    tinyMask[idx] = 200; tinyMask[idx + 1] = 180; tinyMask[idx + 2] = 160; tinyMask[idx + 3] = 255;
+  }
+}
+const outlined = dilateAlphaMaskOutline(tinyMask, 16, 16, 2, [255, 255, 255]);
+assert.equal(outlined.length, 16 * 16 * 4);
+let outlinePx = 0, fgPx = 0;
+for (let i = 0; i < 16 * 16; i++) {
+  const r = outlined[i * 4], g = outlined[i * 4 + 1], b = outlined[i * 4 + 2];
+  const isFg = r === 200 && g === 180 && b === 160;
+  const isOutline = r === 255 && g === 255 && b === 255;
+  if (isFg) fgPx++;
+  else if (isOutline) outlinePx++;
+  assert.ok(isFg || isOutline || (r === 0 && g === 0 && b === 0), 'Outline dilation must only add pure 4-ink colors');
+}
+assert.equal(fgPx, 16, 'Foreground subject pixels must be preserved');
+assert.ok(outlinePx >= 40, '2px dilation ring should add a substantial outline');
+console.log('[PASS] Die-cut sticker outline mask dilation (pure 4-ink ring)');
+
+// 11. Verify Opt-in AI Theme Parity Overlay for 2nd Screen (programme.epaper)
+const overlayOn = composeAiSecondScreenOverlay({
+  enabled: true,
+  layoutTheme: 'retro-terminal',
+  accentInk: 'yellow',
+  headerBadge: 'TERM_OS // TTY.EPAPER',
+  tags: ['2BPP_BWYR', 'ESP32_C3'],
+});
+assert.ok(overlayOn.borderColor === '#ffffff' && overlayOn.cardBg === '#000000' && overlayOn.accentHex === '#ffcc33');
+const overlayOff = composeAiSecondScreenOverlay(null);
+assert.equal(overlayOff, null);
+const overlayClassic = composeAiSecondScreenOverlay({ enabled: false, layoutTheme: 'cyber-pcb' });
+assert.equal(overlayClassic, null, 'AI theme must stay opt-in: disabled aiLayout yields null overlay');
+console.log('[PASS] Opt-in AI theme parity overlay for programme.epaper 2nd screen');

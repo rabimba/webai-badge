@@ -1293,3 +1293,87 @@ input:focus {
   font-weight: 700;
   margin-right: 6px;
 }
+
+.ai-ink-pill {
+  background: var(--bg-obsidian);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-hairline);
+  border-radius: 6px;
+  padding: 4px 9px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.ai-ink-pill[data-aiink='yellow'].active {
+  border-color: var(--ink-yellow);
+  color: var(--ink-yellow);
+  font-weight: 700;
+}
+
+.ai-ink-pill[data-aiink='red'].active {
+  border-color: var(--ink-red);
+  color: var(--ink-red);
+  font-weight: 700;
+}
+
+.ai-ink-pill[data-aiink='white'].active {
+  border-color: #ffffff;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.ai-customize-row:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px dashed var(--border-hairline);
+  border-radius: 8px;
+}
+
+.ai-customize-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 8px;
+}
+
+/* Drag-to-pan cursor over photo box */
+.epaper-bezel.panning {
+  cursor: grabbing;
+}
+
+.epaper-bezel.pan-ready {
+  cursor: grab;
+}
+
+/* NeoPixel WS2812B chase animation (opt-in pulse class) */
+.neopixel {
+  transition: box-shadow 0.12s ease, background-color 0.12s ease;
+}
+
+.neopixel.chase {
+  animation: neopixel-chase 0.72s ease-out;
+  animation-fill-mode: none;
+}
+
+@keyframes neopixel-chase {
+  0% {
+    background-color: var(--led-active);
+    box-shadow: 0 0 14px 3px var(--led-active);
+    transform: scale(1.5);
+  }
+  100% {
+    box-shadow: none;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neopixel.chase {
+    animation: none;
+  }
+}

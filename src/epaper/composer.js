@@ -6,7 +6,14 @@ import { EPAPER_PALETTE, nearestPaletteIndex, encodeRGBAToEpaper } from './codec
 import { preprocessForBWYR, ditherToBWYR } from './dither.js';
 import { encodeQRMatrix, buildVCardPayload, buildWiFiPayload } from './qrcode.js';
 import { formatCounterPreview } from './bootcde-patcher.js';
-import { renderProceduralBackdropRGBA, drawAiPrimaryLayoutCanvas } from './ai-layout.js';
+import {
+  renderProceduralBackdropRGBA,
+  drawAiPrimaryLayoutCanvas,
+  dilateAlphaMaskOutline,
+} from './ai-layout.js';
+
+// Re-export so tests and consumers can access the AI 2nd-screen overlay descriptor
+export { composeAiSecondScreenOverlay, dilateAlphaMaskOutline } from './ai-layout.js';
 
 export const PHOTO_BOX = { x: 47, y: 17, w: 386, h: 389, radius: 30 };
 export const NAME_CARD = { x: 33, y: 430, w: 414, h: 146, radius: 26 };
@@ -235,6 +242,15 @@ export function renderDitheredPhotoBox(sourceImage, backdropImage, state) {
     }
   }
 
+  // Die-cut sticker outline ring between subject and 4-ink backdrop
+  if (fgAlphaMask && (state.stickerOutline ?? true)) {
+    const accent = state.aiLayout?.enabled ? state.aiLayout.accentInk : 'white';
+    const outlineInk =
+      accent === 'red' ? [219, 55, 39] : accent === 'yellow' ? [255, 204, 51] : [255, 255, 255];
+    const outlined = dilateAlphaMaskOutline(ditheredRgba, w, h, 3, outlineInk);
+    ditheredRgba.set(outlined);
+  }
+
   const outCanvas = document.createElement('canvas');
   outCanvas.width = w;
   outCanvas.height = h;
@@ -436,6 +452,19 @@ export function composeSecondScreen(assets, state) {
   }
 
   const tpl = state.secondScreenTemplate || 'speaker';
+  // Opt-in AI theme parity: when active, programme.epaper carries the 4-ink theme styling
+  const aiOverlay = composeAiSecondScreenOverlay(state.aiLayout);
+
+  const themedRect = (x, y, w2, h2, radius, fill, borderColor, borderWidth = 4) => {
+    roundedRectPath(ctx, x, y, w2, h2, radius);
+    ctx.fillStyle = fill;
+    ctx.fill();
+    if (borderColor) {
+      ctx.lineWidth = borderWidth;
+      ctx.strokeStyle = borderColor;
+      ctx.stroke();
+    }
+  };
 
   if (tpl === 'poster') {
     // Full-bleed 4-color dithered photo across the entire 480x800 screen with bottom badge bar
@@ -486,17 +515,10 @@ export function composeSecondScreen(assets, state) {
     );
   } else if (tpl === 'schedule') {
     // WebAI Summit Agenda / Schedule Card
-    roundedRectPath(ctx, 32, 24, 416, 744, 26);
-    ctx.fillStyle = '#000000';
-    ctx.fill();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = '#ffcc33';
-    ctx.stroke();
+    themedRect(32, 24, 416, 744, 26, aiOverlay ? aiOverlay.cardBg : '#000000', aiOverlay ? aiOverlay.borderColor : '#ffcc33', 4);
 
     // Header pill
-    roundedRectPath(ctx, 52, 46, 376, 86, 18);
-    ctx.fillStyle = '#db3727';
-    ctx.fill();
+    themedRect(52, 46, 376, 86, 18, aiOverlay ? aiOverlay.cardAccent : '#db3727', null);
 
     drawCrispTextLayer(
       ctx,
@@ -506,11 +528,15 @@ export function composeSecondScreen(assets, state) {
         octx.textAlign = 'center';
         octx.textBaseline = 'middle';
         octx.font = '800 28px "Space Grotesk", sans-serif';
-        octx.fillText('WEBAI SUMMIT 2026', 240, 76);
+        octx.fillText(
+          aiOverlay?.headerBadge ? aiOverlay.headerBadge.slice(0, 22) : 'WEBAI SUMMIT 2026',
+          240,
+          76
+        );
         octx.font = '700 18px "JetBrains Mono", monospace';
         octx.fillText('BTN1 SECOND SCREEN • LIVE AGENDA', 240, 108);
       },
-      [255, 255, 255]
+      aiOverlay && aiOverlay.themeId === 'retro-terminal' ? [255, 204, 51] : [255, 255, 255]
     );
 
     const items = [
@@ -548,12 +574,7 @@ export function composeSecondScreen(assets, state) {
     }
   } else {
     // Default: Speaker & Contact Card (Giant scannable QR in top frame + Talk Title + Socials)
-    roundedRectPath(ctx, PHOTO_BOX.x, PHOTO_BOX.y, PHOTO_BOX.w, PHOTO_BOX.h, PHOTO_BOX.radius);
-    ctx.fillStyle = '#ffffff';
-    ctx.fill();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = '#000000';
-    ctx.stroke();
+    themedRect(PHOTO_BOX.x, PHOTO_BOX.y, PHOTO_BOX.w, PHOTO_BOX.h, PHOTO_BOX.radius, '#ffffff', aiOverlay ? aiOverlay.borderColor : '#000000', 4);
 
     const payload = resolveQRPayload(state) || 'https://www.linkedin.com/in/rabimba/';
     drawCrispQR(ctx, payload, { centerX: 240, topY: 42, boxSize: 9, border: 2 });
@@ -568,7 +589,7 @@ export function composeSecondScreen(assets, state) {
         octx.font = '800 22px "JetBrains Mono", monospace';
         octx.fillText('SCAN TO CONNECT ON LINKEDIN', 240, 378);
       },
-      [219, 55, 39]
+      aiOverlay && aiOverlay.themeId === 'retro-terminal' ? [255, 204, 51] : [219, 55, 39]
     );
 
     // Middle Card: Name & Talk/Bio
