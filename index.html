@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebAI Badge Studio — Espruino 4-Color ePaper Hardware Lab</title>
+    <meta
+      name="description"
+      content="End-to-end browser studio for the WebAI Summit 2026 Espruino ePaper Badge. 4-color BWYR Atkinson dithering, in-browser WebAI portrait cutout, crisp QR generator, Roman numeral firmware patcher, and Web Serial / Web Bluetooth flashing."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <!-- Top Hardware Telemetry Bar -->
+    <header class="topbar">
+      <div class="topbar-brand">
+        <span class="brand-led" id="statusLed"></span>
+        <div>
+          <div class="brand-title">WEBAI SUMMIT ’26 <span class="brand-sep">//</span> BADGE STUDIO</div>
+          <div class="brand-sub" id="deviceTelemetryText">
+            SIMULATOR READY • 480×800 2BPP BWYR (96,000 B)
+          </div>
+        </div>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="btn btn-ghost" id="btnConnectSerial" title="Connect over USB-C (Web Serial 115200 baud)">
+          <span class="btn-dot usb"></span> Connect USB-C
+        </button>
+        <button class="btn btn-ghost" id="btnConnectBle" title="Connect wirelessly over Web Bluetooth (Nordic UART)">
+          <span class="btn-dot ble"></span> Connect BLE
+        </button>
+        <button class="btn btn-secondary" id="btnDownloadEpaper" title="Download 96,000-byte badge.epaper binary">
+          Download .epaper
+        </button>
+        <button class="btn btn-secondary" id="btnDownloadPng" title="Download 480x800 PNG preview">
+          Save PNG
+        </button>
+        <button class="btn btn-primary" id="btnFlashBadge" title="Flash active design directly to connected badge">
+          ⚡ Flash to Badge
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Split Hardware Workbench -->
+    <main class="workbench">
+      <!-- Left Column: Interactive Physical EPAPER_BADGE Simulator -->
+      <section class="stage-column">
+        <div class="stage-toolbar">
+          <div class="stage-mode-group">
+            <button class="pill-btn active" id="btnViewPrimary" data-screen="primary">
+              Primary Screen (badge.epaper)
+            </button>
+            <button class="pill-btn" id="btnViewSecond" data-screen="second">
+              2nd Screen (BTN1 / programme.epaper)
+            </button>
+          </div>
+          <label class="loupe-toggle" title="Hover over the badge screen to inspect individual 2-bit ePaper ink pixels">
+            <input type="checkbox" id="chkPixelLoupe" checked />
+            <span>8× Pixel Loupe</span>
+          </label>
+        </div>
+
+        <!-- Physical PCB Enclosure -->
+        <div class="pcb-stage-wrap">
+          <div class="pcb-board" id="pcbBoard">
+            <!-- Top Lanyard Slots & Silkscreen -->
+            <div class="pcb-top-edge">
+              <div class="lanyard-slot"></div>
+              <div class="pcb-silkscreen-title">
+                <span>ESPRUINO // EPAPER_BADGE REV 2.6</span>
+                <span class="pcb-fiducial">⊕ J1 USB-C • ESP32-C3</span>
+              </div>
+              <div class="lanyard-slot"></div>
+            </div>
+
+            <!-- 10 Perimeter WS2812B NeoPixel LEDs -->
+            <div class="neopixel np-tl" data-led="0"></div>
+            <div class="neopixel np-ml" data-led="1"></div>
+            <div class="neopixel np-bl" data-led="2"></div>
+            <div class="neopixel np-tr" data-led="3"></div>
+            <div class="neopixel np-mr" data-led="4"></div>
+            <div class="neopixel np-br" data-led="5"></div>
+
+            <!-- 480x800 ePaper Bezel -->
+            <div class="epaper-bezel" id="epaperBezel">
+              <canvas id="badgePreviewCanvas" width="480" height="800"></canvas>
+              <div class="epaper-refresh-flash" id="epaperFlashOverlay"></div>
+
+              <!-- Floating 8x Pixel Dither Loupe -->
+              <div class="pixel-loupe" id="pixelLoupe" hidden>
+                <canvas id="loupeCanvas" width="120" height="120"></canvas>
+                <div class="loupe-meta" id="loupeMeta">X:240 Y:400 • #FFCC33 (10)</div>
+              </div>
+            </div>
+
+            <!-- Bottom Tactile Hardware Buttons & Silkscreen -->
+            <div class="pcb-bottom-edge">
+              <button
+                class="hw-tactile-btn"
+                id="hwBtn1"
+                title="Simulate pressing physical BTN1: Toggle between Primary Badge and 2nd Screen"
+              >
+                <span class="hw-cap"></span>
+                <span class="hw-label">BTN1 • SCREEN</span>
+              </button>
+
+              <div class="pcb-serial-stamp" id="pcbSerialStamp">
+                SN: 90da729c-e8d4 • CRC32: <span id="crcReadout">1139474309</span>
+              </div>
+
+              <button
+                class="hw-tactile-btn"
+                id="hwBtn2"
+                title="Simulate pressing physical BTN2: Increment connection scan counter & pulse NeoPixels"
+              >
+                <span class="hw-cap"></span>
+                <span class="hw-label">BTN2 • SCAN +1</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4-Color Ink Telemetry Strip -->
+        <div class="ink-telemetry-card">
+          <div class="ink-bar-header">
+            <span class="mono-label">4-INK DISTRIBUTION (384,000 PX • 2 BITS/PX)</span>
+            <span class="mono-label" id="qrStatusBadge">QR: v3 (29×29) • SCANNABLE</span>
+          </div>
+          <div class="ink-meter-bar">
+            <div class="ink-seg ink-black" id="barBlack" style="width: 35%"></div>
+            <div class="ink-seg ink-white" id="barWhite" style="width: 20%"></div>
+            <div class="ink-seg ink-yellow" id="barYellow" style="width: 25%"></div>
+            <div class="ink-seg ink-red" id="barRed" style="width: 20%"></div>
+          </div>
+          <div class="ink-legend">
+            <span><i class="swatch s-black"></i> Black (00): <b id="pctBlack">35%</b></span>
+            <span><i class="swatch s-white"></i> White (01): <b id="pctWhite">20%</b></span>
+            <span><i class="swatch s-yellow"></i> Yellow (10): <b id="pctYellow">25%</b></span>
+            <span><i class="swatch s-red"></i> Red (11): <b id="pctRed">20%</b></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Right Column: 4-Tab Customization & Hardware Engineering Workbench -->
+      <section class="controls-column">
+        <nav class="studio-tabs" role="tablist">
+          <button class="tab-btn active" data-tab="tab-studio" role="tab">1. Badge Studio</button>
+          <button class="tab-btn" data-tab="tab-second" role="tab">2. 2nd Screen (BTN1)</button>
+          <button class="tab-btn" data-tab="tab-firmware" role="tab">3. Firmware &amp; Counter</button>
+          <button class="tab-btn" data-tab="tab-connections" role="tab">
+            4. Connections <span class="tab-badge" id="tabConnCount">14</span>
+          </button>
+        </nav>
+
+        <!-- TAB 1: PRIMARY BADGE STUDIO -->
+        <div class="tab-panel active" id="tab-studio">
+          <!-- Card 0: LiteRT-LM & MediaPipe WebGPU AI Badge Designer (Opt-In) -->
+          <div class="panel-card ai-designer-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">
+                  ✨ WebGPU AI Badge Designer <span class="ai-stack-pill">LiteRT-LM + MediaPipe</span>
+                </h2>
+                <p class="card-sub">
+                  Run lightweight in-browser LLMs (<code>.litertlm</code> / <code>.task</code>) over WebGPU to compose
+                  4-ink visual themes, procedural backdrops, and photo-adapted dithering. Default layout stays untouched until applied.
+                </p>
+              </div>
+              <span class="badge-tag" id="llmEngineStatus">Classic Layout • Copilot Ready</span>
+            </div>
+
+            <!-- Model Picker & Local .litertlm / .task Loader -->
+            <div class="ai-model-bar">
+              <select id="selLiteRtModel" class="ai-model-select" title="Select an in-browser LiteRT-LM or MediaPipe GenAI WebGPU model">
+                <option value="qwen3-0.6b-litert" selected>
+                  Qwen3-0.6B-INT4 (LiteRT-LM .litertlm • 329 MB • Recommended)
+                </option>
+                <option value="smollm-135m-task">
+                  SmolLM-135M-Instruct (MediaPipe .task • 167 MB • Fastest)
+                </option>
+                <option value="qwen2.5-0.5b-task">
+                  Qwen2.5-0.5B-Instruct (MediaPipe .task • 547 MB)
+                </option>
+                <option value="gemma4-e2b-web">
+                  Gemma-4-E2B-it-Web (LiteRT-LM .litertlm • 2.0 GB)
+                </option>
+                <option value="local-file">
+                  Load Local .litertlm / .task File (Gemma 3 270M / Custom)...
+                </option>
+              </select>
+
+              <button class="btn btn-secondary btn-sm" id="btnLoadLiteRtModel" title="Download & compile selected model in browser via WebGPU">
+                ⬇ Load WebGPU LLM
+              </button>
+
+              <label class="btn btn-ghost btn-sm file-btn" title="Load a local .litertlm or .task model file from disk">
+                📁 Local .litertlm/.task
+                <input type="file" id="inputLocalLlmFile" accept=".litertlm,.task,.bin" hidden />
+              </label>
+            </div>
+
+            <!-- Model Download / Shader Compile Progress Bar -->
+            <div class="ai-progress-wrap" id="llmProgressWrap" hidden>
+              <div class="ai-progress-bar">
+                <div class="ai-progress-fill" id="llmProgressFill" style="width: 0%"></div>
+              </div>
+              <span class="ai-progress-text" id="llmProgressText">0%</span>
+            </div>
+
+            <!-- One-Click Style Vibe Chips -->
+            <div class="field-label-row" style="margin-top: 10px">
+              <span class="field-label">QUICK STYLE VIBES (OR TYPE CUSTOM PROMPT BELOW)</span>
+              <button class="link-btn" id="btnResetClassicLayout" hidden>↺ Restore Classic Layout</button>
+            </div>
+            <div class="ai-vibe-chips">
+              <button
+                type="button"
+                class="ai-vibe-chip"
+                data-prompt="Cyberpunk hardware hacker badge with circuit traces, hex counter, and red LEDs"
+              >
+                ⚡ Cyber PCB
+              </button>
+              <button
+                type="button"
+                class="ai-vibe-chip"
+                data-prompt="Bold keynote speaker badge with sunburst backdrop, close-up portrait, and gold LEDs"
+              >
+                ☀️ Sunburst Pop
+              </button>
+              <button
+                type="button"
+                class="ai-vibe-chip"
+                data-prompt="Swiss Bauhaus geometric grid layout with high contrast red and yellow blocks"
+              >
+                🟥 Bauhaus Grid
+              </button>
+              <button
+                type="button"
+                class="ai-vibe-chip"
+                data-prompt="Retro 8-bit CRT terminal OS badge with ordered Bayer 4x4 dither and binary counter"
+              >
+                📟 Retro Terminal
+              </button>
+              <button
+                type="button"
+                class="ai-vibe-chip"
+                data-prompt="Clean editorial minimal fellow badge with smooth Floyd-Steinberg dither and solo crop"
+              >
+                ✨ Editorial Minimal
+              </button>
+            </div>
+
+            <!-- Prompt Input & Generate Action -->
+            <div class="ai-prompt-row">
+              <input
+                type="text"
+                id="inpAiPrompt"
+                class="ai-prompt-input"
+                value="Cyberpunk hardware hacker badge with circuit traces, hex counter, and red LEDs"
+                placeholder="Describe your badge vibe (e.g., Bauhaus keynote speaker with circuit backdrop and hex counter)..."
+              />
+              <button class="btn btn-ai-generate" id="btnGenerateAiDesign">
+                ✨ Generate AI Design
+              </button>
+            </div>
+
+            <!-- Opt-In 4-Ink Visual Layout & Backdrop Switcher -->
+            <div class="ai-visual-controls">
+              <div class="ai-sub-group">
+                <span class="field-label">4-INK LAYOUT THEME</span>
+                <div class="ai-mini-pills">
+                  <button type="button" class="ai-theme-pill active" data-aitheme="classic">Classic (Default)</button>
+                  <button type="button" class="ai-theme-pill" data-aitheme="cyber-pcb">Cyber PCB</button>
+                  <button type="button" class="ai-theme-pill" data-aitheme="sunburst-pop">Sunburst Pop</button>
+                  <button type="button" class="ai-theme-pill" data-aitheme="bauhaus-grid">Bauhaus Grid</button>
+                  <button type="button" class="ai-theme-pill" data-aitheme="retro-terminal">Retro Terminal</button>
+                  <button type="button" class="ai-theme-pill" data-aitheme="editorial-minimal">Editorial</button>
+                </div>
+              </div>
+
+              <div class="ai-sub-group">
+                <span class="field-label">PROCEDURAL 4-INK BACKDROP</span>
+                <div class="ai-mini-pills">
+                  <button type="button" class="ai-backdrop-pill active" data-aibackdrop="orig">Original Sunburst</button>
+                  <button type="button" class="ai-backdrop-pill" data-aibackdrop="circuit">PCB Circuit</button>
+                  <button type="button" class="ai-backdrop-pill" data-aibackdrop="sunburst">4-Ink Rays</button>
+                  <button type="button" class="ai-backdrop-pill" data-aibackdrop="halftone">Halftone Dots</button>
+                  <button type="button" class="ai-backdrop-pill" data-aibackdrop="bauhaus">Bauhaus Geo</button>
+                  <button type="button" class="ai-backdrop-pill" data-aibackdrop="matrix-grid">Matrix Grid</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="ai-reasoning-box" id="aiReasoningBox" hidden>
+              <span class="ai-reasoning-label">AI ART DIRECTOR:</span>
+              <span id="aiReasoningText"></span>
+            </div>
+          </div>
+
+          <!-- Card A: Photo Source, Webcam & WebAI Segmentation -->
+          <div class="panel-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Portrait &amp; WebAI Cutout Engine</h2>
+                <p class="card-sub">
+                  Upload any photo, capture from webcam, or re-crop the WebAI Summit stage shot into the 386×389 frame.
+                </p>
+              </div>
+              <span class="badge-tag" id="aiEngineStatus">WebAI Ready</span>
+            </div>
+
+            <div class="photo-actions-row">
+              <label class="btn btn-secondary file-btn">
+                📁 Upload Photo
+                <input type="file" id="inputPhotoUpload" accept="image/*" hidden />
+              </label>
+              <button class="btn btn-secondary" id="btnWebcamCapture">📷 Webcam Capture</button>
+              <button class="btn btn-ai" id="btnToggleAiCutout" title="Segment people from background onto the WebAI geometric sunburst">
+                ✨ WebAI Background Cutout: <b id="aiCutoutStateText">OFF</b>
+              </button>
+            </div>
+
+            <!-- Hidden Webcam Modal Drawer -->
+            <div class="webcam-drawer" id="webcamDrawer" hidden>
+              <video id="webcamVideo" autoplay playsinline muted></video>
+              <div class="webcam-controls">
+                <button class="btn btn-primary" id="btnSnapWebcam">Snap Frame</button>
+                <button class="btn btn-ghost" id="btnCloseWebcam">Cancel</button>
+              </div>
+            </div>
+
+            <!-- Smart Framing Presets -->
+            <div class="field-label-row">
+              <span class="field-label">SMART FRAMING PRESETS</span>
+              <button class="link-btn" id="btnResetCrop">Reset Pan/Zoom</button>
+            </div>
+            <div class="preset-grid">
+              <button class="preset-chip active" data-crop="stage">1. Full Stage + Logo</button>
+              <button class="preset-chip" data-crop="pair">2. Two-Shot + Peace</button>
+              <button class="preset-chip" data-crop="closeup">3. Faces Close-Up</button>
+              <button class="preset-chip" data-crop="solo">4. Solo Portrait</button>
+            </div>
+
+            <div class="sliders-grid">
+              <label class="slider-control">
+                <div class="slider-head"><span>Zoom</span><code id="valZoom">1.00×</code></div>
+                <input type="range" id="rngZoom" min="0.8" max="3.0" step="0.02" value="1.0" />
+              </label>
+              <label class="slider-control">
+                <div class="slider-head"><span>Pan X</span><code id="valPanX">0%</code></div>
+                <input type="range" id="rngPanX" min="-0.6" max="0.6" step="0.01" value="0.0" />
+              </label>
+              <label class="slider-control">
+                <div class="slider-head"><span>Pan Y</span><code id="valPanY">-5%</code></div>
+                <input type="range" id="rngPanY" min="-0.6" max="0.6" step="0.01" value="-0.05" />
+              </label>
+            </div>
+          </div>
+
+          <!-- Card B: 4-Color BWYR Dithering & Gamut Tuning -->
+          <div class="panel-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">4-Color BWYR Dithering Pipeline</h2>
+                <p class="card-sub">
+                  Maps continuous RGB tones to Black (#000), White (#FFF), Amber Gold (#FC3), and Signal Red (#DB3727).
+                </p>
+              </div>
+            </div>
+
+            <div class="dither-mode-grid">
+              <button class="mode-chip active" data-dither="atkinson">Atkinson (Crisp ePaper)</button>
+              <button class="mode-chip" data-dither="floyd-steinberg">Floyd–Steinberg (Smooth)</button>
+              <button class="mode-chip" data-dither="bayer4">Ordered Bayer 4×4 (Retro)</button>
+              <button class="mode-chip" data-dither="threshold">Posterized 4-Ink</button>
+            </div>
+
+            <div class="sliders-grid">
+              <label class="slider-control">
+                <div class="slider-head"><span>Contrast</span><code id="valContrast">1.18</code></div>
+                <input type="range" id="rngContrast" min="0.8" max="1.8" step="0.02" value="1.18" />
+              </label>
+              <label class="slider-control">
+                <div class="slider-head"><span>Brightness</span><code id="valBrightness">1.00</code></div>
+                <input type="range" id="rngBrightness" min="0.7" max="1.4" step="0.02" value="1.0" />
+              </label>
+              <label class="slider-control">
+                <div class="slider-head"><span>Warm Gamut Blend</span><code id="valWarmth">60%</code></div>
+                <input type="range" id="rngWarmth" min="0.0" max="1.0" step="0.05" value="0.60" />
+              </label>
+              <label class="slider-control">
+                <div class="slider-head"><span>Edge Sharpness</span><code id="valSharpness">0.35</code></div>
+                <input type="range" id="rngSharpness" min="0.0" max="1.2" step="0.05" value="0.35" />
+              </label>
+            </div>
+          </div>
+
+          <!-- Card C: Identity & Bottom Handle -->
+          <div class="panel-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Attendee Identity &amp; Handle</h2>
+                <p class="card-sub">
+                  Customize the center orange card and bottom handle (replaces <code>#WebAI</code> with <code>@rabimba</code>).
+                </p>
+              </div>
+            </div>
+
+            <div class="form-grid-3">
+              <label class="input-group">
+                <span>Full Name</span>
+                <input type="text" id="inpName" value="Rabimba Karanjai" placeholder="Rabimba Karanjai" />
+              </label>
+              <label class="input-group">
+                <span>Company / Role</span>
+                <input type="text" id="inpCompany" value="PayPal / GDE" placeholder="PayPal / GDE" />
+              </label>
+              <label class="input-group">
+                <span>Bottom Handle</span>
+                <input type="text" id="inpHandle" value="@rabimba" placeholder="@rabimba" />
+              </label>
+            </div>
+          </div>
+
+          <!-- Card D: Crisp 1-Bit Scannable QR Code Generator -->
+          <div class="panel-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">1-Bit Pixel-Aligned QR Code</h2>
+                <p class="card-sub">
+                  Zero-dither monochrome QR code placed below the name card so phone cameras scan instantaneously.
+                </p>
+              </div>
+              <div class="qr-mode-pills">
+                <button class="qr-pill active" data-qrmode="url">URL / LinkedIn</button>
+                <button class="qr-pill" data-qrmode="vcard">vCard</button>
+                <button class="qr-pill" data-qrmode="wifi">Wi-Fi</button>
+                <button class="qr-pill" data-qrmode="off">Off</button>
+              </div>
+            </div>
+
+            <div id="qrFieldsUrl" class="qr-fields-group">
+              <label class="input-group">
+                <span>Target URL (LinkedIn, GitHub, Portfolio)</span>
+                <input
+                  type="url"
+                  id="inpQrUrl"
+                  value="https://www.linkedin.com/in/rabimba/"
+                  placeholder="https://www.linkedin.com/in/rabimba/"
+                />
+              </label>
+            </div>
+
+            <div id="qrFieldsVcard" class="qr-fields-group" hidden>
+              <div class="form-grid-2">
+                <label class="input-group">
+                  <span>Contact Email</span>
+                  <input type="email" id="inpQrEmail" value="rabimba@paypal.com" placeholder="you@domain.com" />
+                </label>
+                <label class="input-group">
+                  <span>Website / LinkedIn URL</span>
+                  <input type="url" id="inpQrVcardUrl" value="https://www.linkedin.com/in/rabimba/" />
+                </label>
+              </div>
+            </div>
+
+            <div id="qrFieldsWifi" class="qr-fields-group" hidden>
+              <div class="form-grid-2">
+                <label class="input-group">
+                  <span>Wi-Fi SSID</span>
+                  <input type="text" id="inpWifiSsid" value="WebAI" placeholder="Network SSID" />
+                </label>
+                <label class="input-group">
+                  <span>Wi-Fi Password</span>
+                  <input type="text" id="inpWifiPass" value="Hornet-Leading-Showman" placeholder="Password" />
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: SECOND SCREEN (programme.epaper / BTN1) -->
+        <div class="tab-panel" id="tab-second">
+          <div class="panel-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Second Screen Designer (<code>programme.epaper</code>)</h2>
+                <p class="card-sub">
+                  Pressing physical <b>BTN1</b> on the badge toggles between <code>badge.epaper</code> and
+                  <code>programme.epaper</code>. Use it as a giant scannable contact card, conference schedule, or full poster!
+                </p>
+              </div>
+            </div>
+
+            <div class="dither-mode-grid">
+              <button class="second-tpl-chip active" data-secondtpl="speaker">
+                Giant QR Speaker Card
+              </button>
+              <button class="second-tpl-chip" data-secondtpl="schedule">
+                WebAI Summit Live Agenda
+              </button>
+              <button class="second-tpl-chip" data-secondtpl="poster">
+                Full-Bleed 4-Ink Poster
+              </button>
+            </div>
+
+            <label class="input-group" style="margin-top: 14px">
+              <span>Featured Session / Talk Subtitle</span>
+              <input
+                type="text"
+                id="inpSecondTalk"
+                value="Scaling WebAI Agents & Hardware Hacking (PayPal / GDE)"
+              />
+            </label>
+
+            <div class="action-bar-inline" style="margin-top: 16px">
+              <button class="btn btn-secondary" id="btnDownloadProgramme">
+                Download programme.epaper (96,000 B)
+              </button>
+              <button class="btn btn-primary" id="btnFlashProgramme">
+                ⚡ Flash programme.epaper to Badge
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 3: FIRMWARE & COUNTER MODDER (.bootcde) -->
+        <div class="tab-panel" id="tab-firmware">
+          <div class="panel-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Dynamic Connection Counter &amp; <code>.bootcde</code> Patcher</h2>
+                <p class="card-sub">
+                  The badge firmware dynamically overlays the white person silhouette and line count of
+                  <code>scans.txt</code> at bottom-left <code>(8, 759)</code> on every refresh.
+                </p>
+              </div>
+              <span class="badge-tag">144B Icon Safe</span>
+            </div>
+
+            <div class="field-label-row">
+              <span class="field-label">COUNTER NUMERAL SYSTEM</span>
+              <code id="counterLivePreviewTag">Preview: XIV (14)</code>
+            </div>
+            <div class="dither-mode-grid">
+              <button class="fmt-chip active" data-fmt="roman">Roman (XIV)</button>
+              <button class="fmt-chip" data-fmt="arabic">Arabic (14)</button>
+              <button class="fmt-chip" data-fmt="hex">Hexadecimal (0xE)</button>
+              <button class="fmt-chip" data-fmt="binary">Binary (1110)</button>
+            </div>
+
+            <div class="form-grid-2" style="margin-top: 16px">
+              <label class="input-group">
+                <span>Connection Count (<code>scans.txt</code> lines)</span>
+                <input type="number" id="inpConnectionCount" min="0" max="399" value="14" />
+              </label>
+
+              <div class="input-group">
+                <span>NeoPixel Perimeter Accent (10× WS2812B)</span>
+                <div class="led-swatch-row">
+                  <button class="led-chip active" data-ledcolor="#00f" style="--c: #2563eb">Blue (#00f)</button>
+                  <button class="led-chip" data-ledcolor="#730" style="--c: #d97706">Amber (#730)</button>
+                  <button class="led-chip" data-ledcolor="#f00" style="--c: #dc2626">Red (#f00)</button>
+                  <button class="led-chip" data-ledcolor="#072" style="--c: #10b981">Emerald (#072)</button>
+                  <button class="led-chip" data-ledcolor="#607" style="--c: #9333ea">Violet (#607)</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="code-inspector-box">
+              <div class="code-inspector-head">
+                <span>PATCHED <code>showBadge()</code> OVERLAY LOGIC (.bootcde)</span>
+                <span id="bootcdeStatsLabel">8,971 bytes • Strip width: 64px</span>
+              </div>
+              <pre id="bootcdeCodePreview"></pre>
+            </div>
+
+            <div class="action-bar-inline">
+              <button class="btn btn-secondary" id="btnDownloadBootcde">
+                Download Patched .bootcde
+              </button>
+              <button class="btn btn-primary" id="btnFlashFirmware">
+                ⚡ Flash .bootcde &amp; Counter to Badge
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: CONNECTIONS & FULL DEVICE BACKUP -->
+        <div class="tab-panel" id="tab-connections">
+          <div class="panel-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Synced Attendee Connections (<span id="connTotalLabel">14</span>)</h2>
+                <p class="card-sub">
+                  Attendees collected via BLE badge handshakes and synced from
+                  <code>espruino.com/webai2026/badge_connections</code>.
+                </p>
+              </div>
+              <div class="qr-mode-pills">
+                <button class="btn btn-secondary btn-sm" id="btnExportCsv">Export CSV</button>
+                <button class="btn btn-secondary btn-sm" id="btnExportJson">Export JSON</button>
+              </div>
+            </div>
+
+            <!-- Interactive Network Constellation Canvas -->
+            <div class="network-graph-wrap">
+              <canvas id="networkGraphCanvas" width="620" height="200"></canvas>
+            </div>
+
+            <div class="conn-filter-row">
+              <input
+                type="search"
+                id="inpSearchConn"
+                placeholder="Filter by attendee name, company, LinkedIn, or notes..."
+              />
+            </div>
+
+            <div class="conn-table-wrap">
+              <table class="conn-table">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>Attendee</th>
+                    <th>Company</th>
+                    <th>Links &amp; Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="connTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Full Storage Backup & Restore (.zip) -->
+          <div class="panel-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Full Flash Backup &amp; One-Click Restore</h2>
+                <p class="card-sub">
+                  Export or restore a complete PKZIP archive containing <code>badge.epaper</code>,
+                  <code>.bootcde</code>, <code>connections.json</code>, <code>scans.txt</code>, <code>id.json</code>, and
+                  <code>wifi.json</code>.
+                </p>
+              </div>
+            </div>
+
+            <div class="action-bar-inline">
+              <button class="btn btn-secondary" id="btnDownloadFullZip">
+                📦 Download Full Backup (.zip)
+              </button>
+              <label class="btn btn-secondary file-btn">
+                📂 Restore from Backup (.zip / .epaper)
+                <input type="file" id="inputRestoreFile" accept=".zip,.epaper,.json" hidden />
+              </label>
+              <button class="btn btn-ghost" id="btnRestoreFactory">
+                ↺ Reset to Rabimba Stage Preset
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Bottom Collapsible Hardware REPL & Flash Progress Drawer -->
+    <footer class="console-drawer" id="consoleDrawer">
+      <div class="console-bar" id="consoleToggleBar">
+        <div class="console-status">
+          <span class="console-prompt">&gt;_</span>
+          <span id="consoleHeadline">ESPRUINO REPL &amp; FLASH TELEMETRY (64B / 3ms USB PACING)</span>
+        </div>
+        <div class="flash-progress-wrap" id="flashProgressWrap" hidden>
+          <div class="flash-progress-bar">
+            <div class="flash-progress-fill" id="flashProgressFill" style="width: 0%"></div>
+          </div>
+          <span class="flash-progress-text" id="flashProgressText">0%</span>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="btnToggleConsole">Expand Console ▲</button>
+      </div>
+
+      <div class="console-body" id="consoleBody" hidden>
+        <div class="console-logs" id="consoleLogs"></div>
+        <form class="console-input-row" id="formReplCmd">
+          <input
+            type="text"
+            id="inpReplCmd"
+            placeholder="Send Espruino JS expression to connected badge (e.g. Badge.setLEDs('#00f') or process.memory())"
+          />
+          <button type="submit" class="btn btn-secondary btn-sm">Run JS</button>
+        </form>
+      </div>
+    </footer>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

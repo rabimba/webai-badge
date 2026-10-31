@@ -1,0 +1,13 @@
+{
+  "name": "webai-badge-studio",
+  "private": true,
+  "version": "1.0.0",
+  "description": "End-to-end WebAI Summit 2026 ePaper Badge Studio — Web Serial, Web Bluetooth, 4-Color BWYR Dithering, In-Browser WebAI Segmentation, and Firmware Modder",
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/verify.mjs",
+    "preview": "node scripts/dev.mjs"
+  }
+}
