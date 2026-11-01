@@ -513,11 +513,11 @@
               <div class="form-grid-2">
                 <label class="input-group">
                   <span>Wi-Fi SSID</span>
-                  <input type="text" id="inpWifiSsid" value="WebAI" placeholder="Network SSID" />
+                  <input type="text" id="inpWifiSsid" maxlength="32" placeholder="Network SSID" autocomplete="off" />
                 </label>
                 <label class="input-group">
                   <span>Wi-Fi Password</span>
-                  <input type="text" id="inpWifiPass" value="Hornet-Leading-Showman" placeholder="Password" />
+                  <input type="password" id="inpWifiPass" placeholder="Password (min 8 chars)" autocomplete="new-password" />
                 </label>
               </div>
             </div>
@@ -571,6 +571,53 @@
 
         <!-- TAB 3: FIRMWARE & COUNTER MODDER (.bootcde) -->
         <div class="tab-panel" id="tab-firmware">
+          <div class="panel-card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Wi-Fi Provisioning (<code>wifi.json</code>)</h2>
+                <p class="card-sub">
+                  The badge firmware reads its network credentials from
+                  <code>wifi.json</code> in flash storage at boot. Write fresh credentials here
+                  over USB-C or BLE — transfer is CRC32-verified end to end. Password never
+                  leaves your browser except into the badge.
+                </p>
+              </div>
+              <span class="badge-tag">CRC32 Verified</span>
+            </div>
+
+            <div class="form-grid-2">
+              <label class="input-group">
+                <span>Wi-Fi SSID (1–32 chars)</span>
+                <input type="text" id="inpProvSsid" maxlength="32" placeholder="Network SSID" autocomplete="off" />
+              </label>
+              <label class="input-group">
+                <span>Password (min 8 chars, empty = open network)</span>
+                <div class="wifi-pass-wrap">
+                  <input type="password" id="inpProvPass" placeholder="Password (min 8 chars)" autocomplete="new-password" />
+                  <button type="button" class="btn btn-ghost" id="btnProvShowPass" title="Show / hide password">👁</button>
+                </div>
+              </label>
+              <label class="input-group">
+                <span>Backup SSID (optional fallback)</span>
+                <input type="text" id="inpProvBackupSsid" maxlength="32" placeholder="Backup network SSID" autocomplete="off" />
+              </label>
+              <label class="input-group">
+                <span>Backup Password</span>
+                <input type="password" id="inpProvBackupPass" placeholder="Backup password" autocomplete="new-password" />
+              </label>
+            </div>
+
+            <div class="action-bar-inline">
+              <button class="btn btn-secondary" id="btnWifiRead" disabled title="Connect the badge first">
+                ⇩ Read Wi-Fi from Badge
+              </button>
+              <button class="btn btn-primary" id="btnWifiWrite" disabled title="Connect the badge first">
+                ⚡ Write Wi-Fi to Badge
+              </button>
+              <code id="wifiProvStatus">No badge connected — connect via USB-C or BLE</code>
+            </div>
+          </div>
+
           <div class="panel-card">
             <div class="card-header">
               <div>

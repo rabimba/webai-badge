@@ -918,6 +918,21 @@ input:focus {
   word-break: break-all;
 }
 
+.wifi-pass-wrap {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+
+.wifi-pass-wrap input {
+  flex: 1;
+}
+
+.wifi-pass-wrap .btn {
+  padding: 0 10px;
+  font-size: 14px;
+}
+
 .action-bar-inline {
   display: flex;
   flex-wrap: wrap;

@@ -28,6 +28,7 @@ import {
   saveSafetySnapshot,
 } from './storage/zip.js';
 import { EspruinoBadgeClient } from './transport/espruino-client.js';
+import { buildWifiJson, parseWifiJson } from './transport/wifi-provisioning.js';
 
 const assets = {
   cleanBase: null,
@@ -61,8 +62,8 @@ const state = {
   qrMode: 'url', // 'url' | 'vcard' | 'wifi' | 'off'
   qrUrl: 'https://www.linkedin.com/in/rabimba/',
   qrEmail: 'rabimba@paypal.com',
-  wifiSsid: 'WebAI',
-  wifiPassword: 'Hornet-Leading-Showman',
+  wifiSsid: '',
+  wifiPassword: '',
   wifiEnc: 'WPA',
 
   secondScreenTemplate: 'speaker', // 'speaker' | 'schedule' | 'poster'
@@ -200,11 +201,13 @@ const badgeClient = new EspruinoBadgeClient({
       telemetry.textContent = `CONNECTED VIA ${mode.toUpperCase()} • READY TO FLASH`;
       if (mode === 'serial') btnSerial.textContent = '✓ USB-C Connected';
       if (mode === 'bluetooth') btnBle.textContent = '✓ BLE Connected';
+      setWifiProvEnabled(true);
     } else {
       led.classList.remove('connected');
       telemetry.textContent = 'SIMULATOR READY • 480×800 2BPP BWYR (96,000 B)';
       btnSerial.innerHTML = '<span class="btn-dot usb"></span> Connect USB-C';
       btnBle.innerHTML = '<span class="btn-dot ble"></span> Connect BLE';
+      setWifiProvEnabled(false);
     }
   },
 });
@@ -215,6 +218,23 @@ function triggerEpaperRefreshAnimation() {
   overlay.classList.remove('flashing');
   void overlay.offsetWidth;
   overlay.classList.add('flashing');
+}
+
+// Wi-Fi Provisioning card enable/disable (Tab 3). Function declaration so the
+// badgeClient onStatusChange callback can safely call it before wiring runs.
+function setWifiProvEnabled(connected) {
+  const readBtn = $('#btnWifiRead');
+  const writeBtn = $('#btnWifiWrite');
+  const status = $('#wifiProvStatus');
+  if (!readBtn || !writeBtn || !status) return;
+  readBtn.disabled = !connected;
+  writeBtn.disabled = !connected;
+  const title = connected ? '' : 'Connect the badge first';
+  readBtn.title = title;
+  writeBtn.title = title;
+  status.textContent = connected
+    ? 'Connected — read current credentials or write new ones'
+    : 'No badge connected — connect via USB-C or BLE';
 }
 
 function renderActiveBadgeCanvas() {
@@ -1396,6 +1416,58 @@ function bindEvents() {
       await handlePostConnect(info);
     }
   };
+
+  // ===== Wi-Fi Provisioning (wifi.json over Web Serial/BLE) =====
+  const setWifiProvStatus = (msg, type = 'ok') => {
+    const el = $('#wifiProvStatus');
+    if (el) el.textContent = msg;
+    appendConsoleLog({ time: new Date().toLocaleTimeString(), msg: `[wifi] ${msg}`, type });
+  };
+
+  const fillWifiProvForm = (obj) => {
+    $('#inpProvSsid').value = obj.ssid || '';
+    $('#inpProvPass').value = obj.options?.password || '';
+    $('#inpProvBackupSsid').value = obj.backup_ssid || '';
+    $('#inpProvBackupPass').value = obj.backup_options?.password || '';
+  };
+
+  $('#btnProvShowPass')?.addEventListener('click', () => {
+    const pass = $('#inpProvPass');
+    pass.type = pass.type === 'password' ? 'text' : 'password';
+  });
+
+  $('#btnWifiRead')?.addEventListener('click', async () => {
+    try {
+      // wifi.json is a small variable-length file; read a generous fixed window
+      // and trim the Espruino padding (empty string fills) before parsing.
+      const raw = await badgeClient.readStorageFile('wifi.json', 4096);
+      const text = new TextDecoder().decode(raw);
+      const obj = parseWifiJson(text);
+      fillWifiProvForm(obj);
+      setWifiProvStatus(
+        `Read from badge: SSID '${obj.ssid}'${obj.backup_ssid ? ` (backup: '${obj.backup_ssid}')` : ''}`
+      );
+    } catch (err) {
+      setWifiProvStatus(`Read failed: ${err.message || err}`, 'warn');
+    }
+  });
+
+  $('#btnWifiWrite')?.addEventListener('click', async () => {
+    try {
+      const { json, obj } = buildWifiJson({
+        ssid: $('#inpProvSsid').value,
+        password: $('#inpProvPass').value,
+        backupSsid: $('#inpProvBackupSsid').value,
+        backupPassword: $('#inpProvBackupPass').value,
+      });
+      setWifiProvStatus(`Writing wifi.json (${json.length}B, SSID '${obj.ssid}')...`, 'cmd');
+      await badgeClient.writeStorageFile('wifi.json', new TextEncoder().encode(json));
+      setWifiProvStatus(`Written + CRC32 verified: SSID '${obj.ssid}' — badge will use it on next Wi-Fi connect`);
+      pulseNeoPixelChaseRef?.();
+    } catch (err) {
+      setWifiProvStatus(`Write failed: ${err.message || err}`, 'warn');
+    }
+  });
 
   $('#btnFlashBadge').addEventListener('click', async () => {
     try {
