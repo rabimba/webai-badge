@@ -215,3 +215,40 @@ assert.equal(overlayOff, null);
 const overlayClassic = composeAiSecondScreenOverlay({ enabled: false, layoutTheme: 'cyber-pcb' });
 assert.equal(overlayClassic, null, 'AI theme must stay opt-in: disabled aiLayout yields null overlay');
 console.log('[PASS] Opt-in AI theme parity overlay for programme.epaper 2nd screen');
+
+// 12. Verify Wi-Fi Provisioning Helpers (wifi.json build/parse for badge storage write)
+import { buildWifiJson, parseWifiJson } from '../src/transport/wifi-provisioning.js';
+const full = buildWifiJson({
+  ssid: 'Badge24',
+  password: 'x'.repeat(8),
+  backupSsid: 'ALPHABET-GUEST',
+  backupPassword: '',
+});
+assert.deepEqual(full.obj, {
+  ssid: 'Badge24',
+  options: { password: 'x'.repeat(8) },
+  backup_ssid: 'ALPHABET-GUEST',
+  backup_options: { password: '' },
+  badgeURL: 'https://www.espruino.com/webai2026',
+});
+assert.deepEqual(JSON.parse(full.json), full.obj, 'wifi.json string must round-trip through JSON.parse');
+
+// Special characters in SSID/password must survive the JSON round-trip
+const special = buildWifiJson({ ssid: 'My;Net,work"', password: 'pa"ss;word,' });
+assert.equal(JSON.parse(special.json).ssid, 'My;Net,work"');
+assert.equal(JSON.parse(special.json).options.password, 'pa"ss;word,');
+
+// Open network: empty password allowed
+const open = buildWifiJson({ ssid: 'OpenNet', password: '' });
+assert.deepEqual(open.obj.options, { password: '' });
+
+// Rejections
+assert.throws(() => buildWifiJson({ ssid: 'x'.repeat(33), password: '' }), /SSID/);
+assert.throws(() => buildWifiJson({ ssid: 'Net', password: 'short1' }), /8/);
+assert.throws(() => buildWifiJson({ ssid: '', password: '' }), /SSID/);
+
+// Parse back from badge storage
+assert.equal(parseWifiJson('{"ssid":"Badge24","options":{"password":"p"}}').ssid, 'Badge24');
+assert.throws(() => parseWifiJson('{}'), /ssid/);
+assert.throws(() => parseWifiJson('not json'), /wifi\.json/);
+console.log('[PASS] Wi-Fi provisioning wifi.json build/parse helpers (round-trip + validation)');
