@@ -252,3 +252,20 @@ assert.equal(parseWifiJson('{"ssid":"Badge24","options":{"password":"p"}}').ssid
 assert.throws(() => parseWifiJson('{}'), /ssid/);
 assert.throws(() => parseWifiJson('not json'), /wifi\.json/);
 console.log('[PASS] Wi-Fi provisioning wifi.json build/parse helpers (round-trip + validation)');
+
+// 13. Composer wiring smoke test: every ai-layout symbol called inside composer.js
+// must be locally imported (not merely re-exported). Guards against ReferenceError
+// at render time, which Node tests otherwise can't see (canvas-dependent module).
+const composerSrc = fs.readFileSync('src/epaper/composer.js', 'utf8');
+const importBlock = composerSrc.match(/import\s*{([^}]*)}\s*from\s*'\.\/ai-layout\.js'/)?.[1] ?? '';
+const importedNames = importBlock.split(',').map((s) => s.trim().split(' as ')[0]).filter(Boolean);
+for (const fnName of ['renderProceduralBackdropRGBA', 'drawAiPrimaryLayoutCanvas', 'dilateAlphaMaskOutline', 'composeAiSecondScreenOverlay']) {
+  const calledInComposer = new RegExp(`\\b${fnName}\\s*\\(`).test(composerSrc.replace(/import[^\n]*\n/g, ''));
+  if (calledInComposer) {
+    assert.ok(
+      importedNames.includes(fnName),
+      `composer.js calls ${fnName}() but does not import it from ai-layout.js (re-export alone does not bind a local name)`
+    );
+  }
+}
+console.log('[PASS] Composer ai-layout import wiring (no runtime ReferenceError)');

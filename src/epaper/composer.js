@@ -10,6 +10,7 @@ import {
   renderProceduralBackdropRGBA,
   drawAiPrimaryLayoutCanvas,
   dilateAlphaMaskOutline,
+  composeAiSecondScreenOverlay,
 } from './ai-layout.js';
 
 // Re-export so tests and consumers can access the AI 2nd-screen overlay descriptor

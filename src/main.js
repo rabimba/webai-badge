@@ -1598,8 +1598,9 @@ function bindEvents() {
 }
 
 async function initStudio() {
-  bindEvents();
-  setupPixelLoupe();
+  try {
+    bindEvents();
+    setupPixelLoupe();
 
   const [cleanBase, rabimbaBase, photoBackdrop, stagePhoto, bootResp, connResp] =
     await Promise.all([
@@ -1640,6 +1641,15 @@ async function initStudio() {
     msg: 'WebAI Badge Studio initialized. Preset: Rabimba Karanjai (PayPal / GDE) + @rabimba + LinkedIn QR + Roman Counter (XIV).',
     type: 'ok',
   });
+  } catch (err) {
+    // Never die silently: a failed init leaves a black badge preview with no clue why.
+    appendConsoleLog({
+      time: new Date().toLocaleTimeString(),
+      msg: `Studio init failed: ${err.message || err}`,
+      type: 'warn',
+    });
+    console.error('[initStudio]', err);
+  }
 }
 
 initStudio();
