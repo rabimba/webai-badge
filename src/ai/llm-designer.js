@@ -183,7 +183,7 @@ export function synthesizeSmartDesignSpec(userPrompt = '', currentState = {}, ph
   let headerBadge = 'WEBAI SUMMIT // 2026';
   let tags = ['WEBGPU', 'LITE-RT'];
   let ditherMode = photoTelemetry?.recommendedDither || currentState.ditherMode || 'atkinson';
-  let cropPreset = 'closeup';
+  let cropPreset = currentState.cropPreset || 'stage';
   let counterFormat = currentState.counterFormat || 'roman';
   let ledColor = currentState.ledColor || '#00f';
   let secondScreenTemplate = currentState.secondScreenTemplate || 'speaker';
@@ -213,7 +213,7 @@ export function synthesizeSmartDesignSpec(userPrompt = '', currentState = {}, ph
     headerBadge = 'KEYNOTE SPEAKER // ’26';
     tags = ['ON-DEVICE AI', 'GDE'];
     ditherMode = 'atkinson';
-    cropPreset = 'closeup';
+    cropPreset = p.includes('close') ? 'closeup' : 'pair';
     counterFormat = 'roman';
     ledColor = '#730';
   } else if (p.includes('minimal') || p.includes('clean') || p.includes('exec') || p.includes('editorial') || p.includes('magazine')) {
@@ -223,7 +223,7 @@ export function synthesizeSmartDesignSpec(userPrompt = '', currentState = {}, ph
     headerBadge = 'SUMMIT FELLOW // 2026';
     tags = ['AI AGENTS', 'WEB STD'];
     ditherMode = 'floyd-steinberg';
-    cropPreset = 'solo';
+    cropPreset = p.includes('solo') ? 'solo' : 'pair';
     counterFormat = 'roman';
     ledColor = '#00f';
   } else if (p.includes('cyber') || p.includes('pcb') || p.includes('hardware') || p.includes('hacker') || p.includes('circuit') || p.includes('matrix')) {
@@ -233,7 +233,7 @@ export function synthesizeSmartDesignSpec(userPrompt = '', currentState = {}, ph
     headerBadge = 'HW LAB // REV 2.6';
     tags = ['LITERT-LM', 'ESP32-C3'];
     ditherMode = 'atkinson';
-    cropPreset = 'closeup';
+    cropPreset = 'pair';
     counterFormat = 'hex';
     ledColor = '#f00';
   }

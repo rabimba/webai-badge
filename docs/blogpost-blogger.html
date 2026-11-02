@@ -1,0 +1,327 @@
+<!--===== BEGIN BLOGGER PASTE =====-->
+<div class="webai-badge-blog-post" style="font-family: 'Georgia', 'Times New Roman', serif; font-size: 18px; line-height: 1.8; color: #222222; max-width: 820px; margin: 0 auto;">
+
+  <!-- Main Header Banner -->
+  <div style="background: #080b14; border-radius: 12px; padding: 36px 28px; color: #ffffff; margin-bottom: 32px; text-align: center; border: 1px solid #1a2238; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+    <span style="background: rgba(0, 160, 106, 0.18); color: #00a06a; border: 1px solid #00a06a; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 13px; font-weight: 700; letter-spacing: 1.5px; padding: 6px 14px; border-radius: 20px; text-transform: uppercase;">WebAI Summit &#8226; Hardware Hacking &#8226; On-Device WebGPU</span>
+    <h1 style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 32px; font-weight: 800; color: #ffffff; margin: 18px 0 12px 0; line-height: 1.25;">Skipping the Photo Booth Line at Google&#8217;s WebAI Summit: Reverse-Engineering the 4-Color Espruino ePaper Badge (and Building an On-Device WebGPU Studio for It)</h1>
+    <p style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 16px; color: #94a3b8; max-width: 680px; margin: 0 auto 18px auto; line-height: 1.5;">
+      How a 45-minute portrait queue turned into a live USB-C hardware hack, a bit-exact 96,000-byte 2bpp BWYR codec, surgical <code>.bootcde</code> firmware patching, and an open-source WebAI Badge Studio running LiteRT-LM and MediaPipe over WebGPU.
+    </p>
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 13px; color: #64748b;">
+      By <strong style="color: #e2e8f0;">Rabimba Karanjai</strong> &#8226; Live Studio: <a href="https://rabimba.github.io/webai-badge/" style="color: #38bdf8; text-decoration: none; font-weight: 600;">rabimba.github.io/webai-badge</a> &#8226; Source: <a href="https://github.com/rabimba/webai-badge" style="color: #00a06a; text-decoration: none; font-weight: 600;">github.com/rabimba/webai-badge</a>
+    </div>
+  </div>
+
+  <!-- Intro Story -->
+  <p style="margin-bottom: 22px;">
+    <span style="float: left; font-size: 56px; line-height: 48px; padding-top: 4px; padding-right: 10px; font-weight: bold; color: #00a06a; font-family: 'Helvetica Neue', sans-serif;">W</span>hen <a href="https://www.linkedin.com/in/webai/" style="color: #0066cc; text-decoration: underline;">Jason Mayes</a> invites you to Google&#8217;s WebAI Summit, you already know the demos are going to run locally in the browser without a cloud GPU in sight. What I did not expect when walking into the registration hall was to be handed one of the coolest pieces of conference hardware I have ever worn: a custom <strong>Espruino 4-color ePaper smart badge</strong> (<code>EPAPER_BADGE</code>), built in collaboration with Espruino creator Gordon Williams.
+  </p>
+
+  <p style="margin-bottom: 22px;">
+    Instead of a paper lanyard card, every attendee received a bare-PCB hardware badge powered by an <strong>ESP32-C3</strong> running Espruino JavaScript firmware (<code>2v29.490</code>), a crisp <code>480&#215;800</code> 4-color e-ink panel (Black, White, Yellow, Red), ten addressable WS2812B NeoPixel LEDs around the perimeter, two tactile buttons (<code>BTN1</code> and <code>BTN2</code>), and a Bluetooth Low Energy mesh beacon that lets badges exchange contact cards and increment a live connection counter at the bottom corner of the screen.
+  </p>
+
+  <p style="margin-bottom: 22px;">
+    There was just one bottleneck. To get your face and name onto the ePaper screen, you had to stand in the official photo booth line. And because every single engineer in the building wanted a custom e-ink portrait, that line stretched across the hall.
+  </p>
+
+  <!-- Callout Box: The Hallway Hack -->
+  <div style="background: #f4fbf8; border-left: 4px solid #00a06a; padding: 20px 24px; border-radius: 0 8px 8px 0; margin: 28px 0;">
+    <h4 style="font-family: 'Helvetica Neue', sans-serif; font-size: 16px; font-weight: 700; color: #007a50; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.5px;">The 15-Minute Hallway REPL Hack</h4>
+    <p style="margin: 0; font-size: 16px; color: #2d3748; line-height: 1.65;">
+      I looked at the 45-minute photo line, looked down at the exposed USB-C connector on the bottom of the PCB (<code>J1 USB-C</code>), and pulled my laptop out of my backpack. Because the badge runs Espruino, plugging it in over USB-C exposes a live interactive JavaScript REPL at <code>115200</code> baud. Twenty minutes later, I had dumped the flash filesystem, reverse-engineered the 96,000-byte 2bpp framebuffer layout, dithered a stage selfie with Jason, embedded a pixel-snapped LinkedIn QR code, and patched the firmware to render my connection counter in Roman numerals (<code>XIV</code>).
+    </p>
+  </div>
+
+  <p style="margin-bottom: 22px;">
+    When I posted <a href="https://www.linkedin.com/posts/rabimba_if-you-are-interested-in-the-web-and-on-device-share-7522021163087077376-g-R8/" style="color: #0066cc; text-decoration: underline;">photos of that hacked badge on LinkedIn</a>, messages immediately started rolling in from other summit attendees: <em>&#8220;How did you get the QR code to scan without e-ink dither noise?&#8221;</em>, <em>&#8220;How do I change the second screen when I press BTN1?&#8221;</em>, and <em>&#8220;Can you share the script so I don&#8217;t overwrite my badge&#8217;s calibration or connection log?&#8221;</em>
+  </p>
+
+  <p style="margin-bottom: 26px;">
+    A raw Node script is fine for a quick hallway mod, but this hardware deserved a proper tool. So I packaged everything we learned about the board into the open-source <strong><a href="https://rabimba.github.io/webai-badge/" style="color: #0066cc; text-decoration: underline;">WebAI Badge Studio</a></strong>: a zero-install, browser-native hardware lab, 4-ink compositor, <code>.bootcde</code> binary patcher, Wi-Fi provisioner, and Web Serial / Web Bluetooth flasher. And because this is the WebAI Summit, the studio itself runs local vision and language models in the browser over <strong>WebGPU</strong> using <strong>LiteRT-LM</strong> and <strong>MediaPipe</strong>.
+  </p>
+
+  <!-- Animated GIF Showcase -->
+  <div style="margin: 34px 0; text-align: center; background: #080b14; padding: 18px; border-radius: 12px; border: 1px solid #1e293b; box-shadow: 0 8px 24px rgba(0,0,0,0.18);">
+    <img src="https://rabimba.github.io/webai-badge/demo/webai-badge-studio-demo.gif" alt="WebAI Badge Studio End-to-End Walkthrough GIF" style="max-width: 100%; height: auto; border-radius: 8px; border: 1px solid #334155; display: block; margin: 0 auto;" />
+    <p style="font-family: 'Helvetica Neue', sans-serif; font-size: 13px; color: #94a3b8; margin: 12px 0 2px 0;">
+      <strong>Figure 1:</strong> End-to-end tour of <a href="https://rabimba.github.io/webai-badge/" style="color: #38bdf8;">WebAI Badge Studio</a>: 8&#215; 2-bit pixel dither loupe, MediaPipe WebAI portrait cutout, WebGPU LiteRT-LM theme synthesis, 1-bit vCard QR generator, <code>BTN1</code> second-screen templates, <code>wifi.json</code> provisioning, <code>.bootcde</code> Roman counter patching, and BLE attendee constellation backup.
+    </p>
+  </div>
+
+  <!-- Section 1: Reverse Engineering the Hardware -->
+  <h2 style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 25px; font-weight: 700; color: #111827; margin: 42px 0 16px 0; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">1. Under the Hood of the Espruino <code>EPAPER_BADGE</code></h2>
+
+  <p style="margin-bottom: 22px;">
+    Before writing a single pixel to flash, I needed to understand how the badge stores and renders images. Connecting to the badge over Web Serial and running <code>require(&quot;Storage&quot;).list()</code> revealed the entire on-chip SPI flash layout:
+  </p>
+
+  <!-- Table: Flash Filesystem -->
+  <div style="overflow-x: auto; margin: 24px 0 30px 0;">
+    <table style="width: 100%; border-collapse: collapse; font-family: 'Helvetica Neue', sans-serif; font-size: 14px; border: 1px solid #cbd5e1;">
+      <thead>
+        <tr style="background: #0f172a; color: #f8fafc; text-align: left;">
+          <th style="padding: 12px 14px; border-bottom: 2px solid #334155;">Flash File</th>
+          <th style="padding: 12px 14px; border-bottom: 2px solid #334155;">Size</th>
+          <th style="padding: 12px 14px; border-bottom: 2px solid #334155;">Role on the Badge</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom: 1px solid #e2e8f0; background: #ffffff;">
+          <td style="padding: 10px 14px; font-family: monospace; font-weight: 700; color: #0f172a;">.bootcde</td>
+          <td style="padding: 10px 14px; font-family: monospace;">8,971 B</td>
+          <td style="padding: 10px 14px;">Primary boot firmware: defines <code>showBadge()</code>, BLE scanning, button handlers, and dynamic counter overlay.</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #e2e8f0; background: #f8fafc;">
+          <td style="padding: 10px 14px; font-family: monospace; font-weight: 700; color: #0f172a;">badge.epaper</td>
+          <td style="padding: 10px 14px; font-family: monospace;">96,000 B</td>
+          <td style="padding: 10px 14px;">Primary screen raw 2bpp BWYR framebuffer (<code>800&#215;480</code> rotated <code>-90&#176;</code>).</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #e2e8f0; background: #ffffff;">
+          <td style="padding: 10px 14px; font-family: monospace; font-weight: 700; color: #0f172a;">programme.epaper</td>
+          <td style="padding: 10px 14px; font-family: monospace;">96,000 B</td>
+          <td style="padding: 10px 14px;">Secondary screen framebuffer toggled when pressing physical button <code>BTN1</code>.</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #e2e8f0; background: #f8fafc;">
+          <td style="padding: 10px 14px; font-family: monospace; font-weight: 700; color: #0f172a;">id.json</td>
+          <td style="padding: 10px 14px; font-family: monospace;">~360 B</td>
+          <td style="padding: 10px 14px;">Attendee identity payload broadcast over BLE during badge-to-badge handshakes.</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #e2e8f0; background: #ffffff;">
+          <td style="padding: 10px 14px; font-family: monospace; font-weight: 700; color: #0f172a;">wifi.json</td>
+          <td style="padding: 10px 14px; font-family: monospace;">~95 B</td>
+          <td style="padding: 10px 14px;">Primary and fallback Wi-Fi SSID/password credentials used for cloud sync.</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #e2e8f0; background: #f8fafc;">
+          <td style="padding: 10px 14px; font-family: monospace; font-weight: 700; color: #0f172a;">scans.txt &amp; connections.json</td>
+          <td style="padding: 10px 14px; font-family: monospace;">Variable</td>
+          <td style="padding: 10px 14px;">Newline-delimited MAC log (counted at boot for the corner badge counter) and resolved attendee profiles.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin-bottom: 22px;">
+    The ePaper display measures <code>480&#215;800</code> pixels when held upright in portrait orientation, for a total of <code>384,000</code> pixels. At 2 bits per pixel (4 pixels packed MSB-first into each byte), a full-screen image is always <strong>exact to the byte: <code>96,000</code> bytes</strong>. However, the physical controller scans in landscape (<code>800&#215;480</code>) with a <code>-90&#176;</code> rotation transform. Writing an upright image directly to <code>badge.epaper</code> without rotating coordinates produces scrambled diagonal stripes.
+  </p>
+
+  <!-- Inline SVG Diagram 1: Framebuffer & Bit Packing -->
+  <div style="margin: 30px 0; text-align: center;">
+    <svg viewBox="0 0 780 310" width="100%" style="max-width: 780px; background: #0b101e; border-radius: 12px; border: 1px solid #1e293b; display: block; margin: 0 auto;" xmlns="http://www.w3.org/2000/svg">
+      <!-- Title -->
+      <text x="24" y="32" fill="#f8fafc" font-family="Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="bold">EPAPER_BADGE 2bpp Framebuffer Rotation &amp; Byte Packing (96,000 Bytes)</text>
+      <text x="24" y="52" fill="#94a3b8" font-family="monospace" font-size="12">Upright Portrait (480x800)  ---[ rx = 799 - y, ry = x ]---&gt;  Raw Controller Buffer (800x480)</text>
+
+      <!-- Left Box: Upright Portrait -->
+      <rect x="28" y="72" width="140" height="214" rx="12" fill="#131c31" stroke="#ffcc33" stroke-width="2"/>
+      <rect x="42" y="84" width="112" height="92" rx="8" fill="#db3727" opacity="0.85"/>
+      <text x="98" y="134" fill="#ffffff" font-family="Helvetica Neue, sans-serif" font-size="11" font-weight="bold" text-anchor="middle">Portrait (386x389)</text>
+      <rect x="38" y="184" width="120" height="36" rx="6" fill="#ffcc33"/>
+      <text x="98" y="206" fill="#000000" font-family="Helvetica Neue, sans-serif" font-size="10" font-weight="bold" text-anchor="middle">Identity Card</text>
+      <rect x="74" y="226" width="48" height="44" rx="4" fill="#ffffff"/>
+      <text x="98" y="252" fill="#000000" font-family="monospace" font-size="10" font-weight="bold" text-anchor="middle">1-Bit QR</text>
+      <text x="44" y="274" fill="#ffffff" font-family="monospace" font-size="10" font-weight="bold">XIV</text>
+      <text x="98" y="302" fill="#cbd5e1" font-family="monospace" font-size="11" text-anchor="middle">Upright (x: 0..479, y: 0..799)</text>
+
+      <!-- Arrow -->
+      <path d="M 184 176 L 258 176" stroke="#00a06a" stroke-width="3" fill="none"/>
+      <polygon points="258,170 272,176 258,182" fill="#00a06a"/>
+      <text x="226" y="164" fill="#00a06a" font-family="monospace" font-size="11" font-weight="bold" text-anchor="middle">Rotate -90&#176;</text>
+
+      <!-- Center Box: Raw Buffer -->
+      <rect x="284" y="102" width="210" height="134" rx="10" fill="#131c31" stroke="#38bdf8" stroke-width="2"/>
+      <text x="389" y="144" fill="#38bdf8" font-family="monospace" font-size="12" font-weight="bold" text-anchor="middle">Raw Scanline Buffer</text>
+      <text x="389" y="166" fill="#e2e8f0" font-family="monospace" font-size="11" text-anchor="middle">width = 800, height = 480</text>
+      <text x="389" y="188" fill="#94a3b8" font-family="monospace" font-size="11" text-anchor="middle">p = ry * 800 + rx</text>
+      <text x="389" y="210" fill="#ffcc33" font-family="monospace" font-size="11" text-anchor="middle">byteIndex = p &gt;&gt; 2</text>
+      <text x="389" y="256" fill="#cbd5e1" font-family="monospace" font-size="11" text-anchor="middle">384,000 px / 4 = 96,000 Bytes</text>
+
+      <!-- Right Box: 2-Bit Palette Table -->
+      <rect x="520" y="72" width="234" height="214" rx="10" fill="#131c31" stroke="#475569" stroke-width="1.5"/>
+      <text x="637" y="98" fill="#f8fafc" font-family="Helvetica Neue, sans-serif" font-size="13" font-weight="bold" text-anchor="middle">2-Bit BWYR Ink Codes</text>
+
+      <rect x="536" y="112" width="24" height="24" rx="4" fill="#000000" stroke="#94a3b8"/>
+      <text x="570" y="128" fill="#e2e8f0" font-family="monospace" font-size="12">00 (0) #000000 Black</text>
+
+      <rect x="536" y="148" width="24" height="24" rx="4" fill="#ffffff" stroke="#94a3b8"/>
+      <text x="570" y="164" fill="#e2e8f0" font-family="monospace" font-size="12">01 (1) #FFFFFF White</text>
+
+      <rect x="536" y="184" width="24" height="24" rx="4" fill="#ffcc33" stroke="#94a3b8"/>
+      <text x="570" y="200" fill="#ffcc33" font-family="monospace" font-size="12">10 (2) #FFCC33 Yellow</text>
+
+      <rect x="536" y="220" width="24" height="24" rx="4" fill="#db3727" stroke="#94a3b8"/>
+      <text x="570" y="236" fill="#f87171" font-family="monospace" font-size="12">11 (3) #DB3727 Red</text>
+
+      <text x="637" y="270" fill="#94a3b8" font-family="monospace" font-size="10" text-anchor="middle">Shift: (3 - (p &amp; 3)) * 2</text>
+    </svg>
+  </div>
+
+  <p style="margin-bottom: 22px;">
+    Once you know the coordinate mapping (<code>rx = 799 - y</code>, <code>ry = x</code>) and the 2-bit ink table, encoding and decoding between a browser HTML5 <code>ImageData</code> buffer and a physical <code>.epaper</code> file takes twenty lines of typed-array math (`src/epaper/codec.js`):
+  </p>
+
+  <pre style="background: #080b14; color: #e2e8f0; padding: 20px; border-radius: 10px; overflow-x: auto; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 13.5px; line-height: 1.6; border: 1px solid #1e293b; margin: 24px 0;"><code>export function encodeRGBAToEpaper(rgbaData) {
+  const out = new Uint8Array(96000);
+  for (let y = 0; y &lt; 800; y++) {
+    const rx = 799 - y;
+    for (let x = 0; x &lt; 480; x++) {
+      const idx = (y * 480 + x) * 4;
+      const c = nearestPaletteIndex(rgbaData[idx], rgbaData[idx + 1], rgbaData[idx + 2]);
+      const ry = x;
+      const p = ry * 800 + rx;
+      const byteIdx = p &gt;&gt; 2;
+      const shift = (3 - (p &amp; 3)) * 2;
+      out[byteIdx] |= (c &amp; 0x03) &lt;&lt; shift;
+    }
+  }
+  return out;
+}</code></pre>
+
+  <!-- Section 2: Dithering & 1-Bit QR -->
+  <h2 style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 25px; font-weight: 700; color: #111827; margin: 42px 0 16px 0; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">2. Taming 4-Color Skin Tones and Zero-Noise 1-Bit QR Codes</h2>
+
+  <p style="margin-bottom: 22px;">
+    A 4-color Black/White/Yellow/Red display has no green or blue primaries and no mid-gray ink. If you run standard Euclidean RGB distance against <code>[#000000, #FFFFFF, #FFCC33, #DB3727]</code>, two bad things happen immediately:
+  </p>
+
+  <ol style="margin-bottom: 24px; padding-left: 24px;">
+    <li style="margin-bottom: 10px;"><strong>Light gray backgrounds turn yellow:</strong> Any neutral shadow around <code>RGB(210, 210, 210)</code> is mathematically closer in raw RGB space to Amber Gold (<code>#FFCC33</code>) than to pure White or Black, polluting neutral areas with yellow speckles.</li>
+    <li style="margin-bottom: 10px;"><strong>QR codes become unscannable:</strong> Error-diffusion dithering bleeds yellow and red error pixels into the white quiet zone and module edges of a QR code, causing phone cameras to fail under conference lighting.</li>
+  </ol>
+
+  <p style="margin-bottom: 22px;">
+    In <code>src/epaper/codec.js</code> and <code>src/epaper/dither.js</code>, we solved the portrait problem in two stages. First, we pre-blend image pixels toward a warm black-white-amber-red gamut curve and apply a 3&#215;3 unsharp mask before error diffusion. Second, inside <code>nearestPaletteIndex(r, g, b)</code>, we compute a weighted redmean perceptual distance with a <strong>neutral-chroma penalty</strong>: when a pixel&#8217;s chroma (<code>max(r,g,b) - min(r,g,b)</code>) is below 28, yellow and red inks receive an extra distance penalty so neutral grays dither strictly between Black and White paper ink.
+  </p>
+
+  <p style="margin-bottom: 22px;">
+    For the QR code, we wrote a zero-dependency ISO/IEC 18004 QR matrix generator (<code>src/epaper/qrcode.js</code>) supporting Galois Field <code>GF(256)</code> Reed-Solomon error correction across Versions 1 through 10. Crucially, the composer renders the portrait and background through Atkinson dithering <em>first</em>, and only afterward stamps the QR matrix onto the canvas using integer module widths (<code>boxSize</code>) and pure <code>#000000</code> / <code>#FFFFFF</code> pixels. Every QR module aligns to exact hardware pixel boundaries with zero dither noise, supporting LinkedIn URLs, multi-field <code>BEGIN:VCARD</code> contact cards, and <code>WIFI:S:...</code> network strings.
+  </p>
+
+  <!-- Section 3: Surgical .bootcde Firmware Patching -->
+  <h2 style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 25px; font-weight: 700; color: #111827; margin: 42px 0 16px 0; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">3. Surgical <code>.bootcde</code> Patching: Why Roman Numerals Clipped at 48 Pixels</h2>
+
+  <p style="margin-bottom: 22px;">
+    One of my favorite details on the badge is the dynamic connection counter in the bottom-left corner. Rather than baking the number into <code>badge.epaper</code>, the badge&#8217;s startup script (<code>.bootcde</code>) counts the lines in <code>scans.txt</code> and composites the number and a tiny person silhouette over the bottom-left strip of the image buffer on every refresh.
+  </p>
+
+  <p style="margin-bottom: 22px;">
+    When I first patched <code>showBadge()</code> at the summit to format my 14 connections as Roman numerals (<code>XIV</code>), I noticed a subtle bug in the stock firmware:
+  </p>
+
+  <pre style="background: #080b14; color: #e2e8f0; padding: 20px; border-radius: 10px; overflow-x: auto; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 13.5px; line-height: 1.6; border: 1px solid #1e293b; margin: 24px 0;"><code>// Stock .bootcde strip renderer (48px wide):
+return Badge.showImageFileRendering("badge.epaper", 48, function(g) {
+  let img = atob("ICOBAAABgAAAD/AAAB/4..."); // 144-byte 1-bit transparent icon
+  g.setRotation(1);
+  g.setColor(1).drawImage(img, 24 - 16, 759);
+  g.setFont("22").setFontAlign(0, 0).drawString(connectionCount, 24, 745);
+});</code></pre>
+
+  <p style="margin-bottom: 22px;">
+    Notice the second argument to <code>Badge.showImageFileRendering(&quot;badge.epaper&quot;, 48, ...)</code>. To save RAM on the ESP32-C3, the firmware only allocates a <strong>48-pixel-wide overlay strip</strong> at the left edge of the portrait display (<code>x = 0..47</code>), centered at <code>x = 24</code>. A 2-digit Arabic number fits inside 48 pixels, but strings like <code>XVIII</code>, hexadecimal <code>0x1F</code>, or binary <code>1110</code> overflow past <code>x = 48</code> and get sliced in half!
+  </p>
+
+  <p style="margin-bottom: 22px;">
+    Furthermore, the <code>atob(&quot;ICOB...&quot;)</code> string inside <code>showBadge()</code> is a 144-byte Espruino 1-bit bitmap header (<code>[32, 35, 129, 0, ...]</code>, where byte <code>129 = 0x80 | 1</code> sets the transparency bit). If you accidentally alter a single byte of that base64 string, the person icon turns into a solid white rectangle.
+  </p>
+
+  <p style="margin-bottom: 22px;">
+    Our binary patcher in <code>src/epaper/bootcde-patcher.js</code> locates the exact <code>showBadge = function(options) { ... };</code> block inside the 8,971-byte <code>.bootcde</code> file, preserves the 144-byte transparent icon byte-for-byte, widens the overlay strip from <code>48</code> to <strong><code>64</code> pixels</strong>, and dynamically shifts the text anchor <code>Math.max(24, (g.stringWidth(r) &gt;&gt; 1) + 4)</code> so Roman, Hexadecimal, and Binary counters never clip.
+  </p>
+
+  <!-- Section 4: Web Serial Pacing & Wi-Fi Provisioning -->
+  <h2 style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 25px; font-weight: 700; color: #111827; margin: 42px 0 16px 0; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">4. Defeating ESP32-C3 Serial FIFO Drops &amp; CRC32-Verified Flashing</h2>
+
+  <p style="margin-bottom: 22px;">
+    Flashing 96,000 bytes into Espruino SPI flash from Chrome requires sending base64 chunks into <code>require(&quot;Storage&quot;).write(&quot;badge.epaper&quot;, atob(&quot;...&quot;), offset, totalSize)</code>. During early testing, writing a 1,500-character REPL command in one <code>writable.write()</code> call over Web Serial corrupted the image roughly one out of every three flashes.
+  </p>
+
+  <p style="margin-bottom: 22px;">
+    The culprit is the ESP32-C3&#8217;s hardware USB-Serial/JTAG controller. When Espruino pauses interrupts for a few milliseconds to erase a 4 KB SPI flash sector, incoming USB serial packets can overrun the small hardware FIFO if the host browser keeps blasting bytes at full USB speed. In <code>src/transport/espruino-client.js</code>, we slice every outgoing REPL command into <strong>64-byte packets with a 3 ms inter-packet pause</strong>, and follow every file upload with an on-device IEEE 802.3 checksum verification:
+  </p>
+
+  <pre style="background: #080b14; color: #e2e8f0; padding: 20px; border-radius: 10px; overflow-x: auto; font-family: 'JetBrains Mono', Consolas, monospace; font-size: 13.5px; line-height: 1.6; border: 1px solid #1e293b; margin: 24px 0;"><code>// Verify on-chip flash contents against local IEEE 802.3 CRC32 before refreshing ePaper
+const expectedCrc = crc32(uint8Bytes);
+const remoteCrc = await client.evalExpr(
+  `E.CRC32(require("Storage").read(${JSON.stringify(filename)}))`
+);
+if (Number(remoteCrc) !== expectedCrc) {
+  throw new Error(`CRC32 mismatch on ${filename}: expected ${expectedCrc}, got ${remoteCrc}`);
+}</code></pre>
+
+  <p style="margin-bottom: 22px;">
+    We also added a dedicated <strong>Wi-Fi Provisioning (<code>wifi.json</code>)</strong> card in Tab 3 (`src/transport/wifi-provisioning.js`). After leaving the conference venue, your badge still tries to connect to the summit Wi-Fi whenever it syncs. Now you can read or write primary and backup Wi-Fi credentials directly from the browser over USB-C or Web Bluetooth, verified end-to-end with <code>E.CRC32</code>.
+  </p>
+
+  <!-- Section 5: Running Local WebAI Inside the Studio -->
+  <h2 style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 25px; font-weight: 700; color: #111827; margin: 42px 0 16px 0; border-bottom: 2px solid #e5e7eb; padding-bottom: 8px;">5. Meta-WebAI: Running LiteRT-LM and MediaPipe Over WebGPU Inside the Badge Studio</h2>
+
+  <p style="margin-bottom: 22px;">
+    It felt only right that a studio built for Google&#8217;s WebAI Summit should itself be a showcase of modern client-side WebAI. Every AI feature in the studio runs 100% locally inside your browser tab with zero server calls and zero API keys:
+  </p>
+
+  <!-- Inline SVG Diagram 2: In-Browser WebGPU AI Pipeline -->
+  <div style="margin: 30px 0; text-align: center;">
+    <svg viewBox="0 0 780 250" width="100%" style="max-width: 780px; background: #0b101e; border-radius: 12px; border: 1px solid #1e293b; display: block; margin: 0 auto;" xmlns="http://www.w3.org/2000/svg">
+      <text x="24" y="32" fill="#f8fafc" font-family="Helvetica Neue, Arial, sans-serif" font-size="15" font-weight="bold">In-Browser WebGPU AI Pipeline (Zero Cloud Calls)</text>
+
+      <!-- Box 1: Input & Telemetry -->
+      <rect x="24" y="56" width="210" height="166" rx="10" fill="#131c31" stroke="#38bdf8" stroke-width="1.8"/>
+      <text x="129" y="82" fill="#38bdf8" font-family="Helvetica Neue, sans-serif" font-size="13" font-weight="bold" text-anchor="middle">1. Vision &amp; Telemetry</text>
+      <text x="129" y="108" fill="#e2e8f0" font-family="monospace" font-size="11" text-anchor="middle">MediaPipe SelfieSegmenter</text>
+      <text x="129" y="126" fill="#94a3b8" font-family="monospace" font-size="10" text-anchor="middle">(float16 .tflite on WebGPU)</text>
+      <line x1="44" y1="142" x2="214" y2="142" stroke="#1e293b" stroke-width="1.5"/>
+      <text x="129" y="164" fill="#ffcc33" font-family="monospace" font-size="11" text-anchor="middle">analyzePhotoTelemetry()</text>
+      <text x="129" y="184" fill="#cbd5e1" font-family="monospace" font-size="10" text-anchor="middle">Luminance / Contrast / Warmth</text>
+      <text x="129" y="202" fill="#cbd5e1" font-family="monospace" font-size="10" text-anchor="middle">+ 4-Ink Sticker Outline Mask</text>
+
+      <!-- Arrow 1 -->
+      <path d="M 238 138 L 274 138" stroke="#00a06a" stroke-width="2.5" fill="none"/>
+      <polygon points="274,133 286,138 274,143" fill="#00a06a"/>
+
+      <!-- Box 2: LiteRT-LM / MediaPipe GenAI -->
+      <rect x="290" y="56" width="224" height="166" rx="10" fill="#131c31" stroke="#00a06a" stroke-width="2"/>
+      <text x="402" y="82" fill="#00a06a" font-family="Helvetica Neue, sans-serif" font-size="13" font-weight="bold" text-anchor="middle">2. WebGPU LLM Art Director</text>
+      <text x="402" y="106" fill="#e2e8f0" font-family="monospace" font-size="11" text-anchor="middle">@litert-lm/core (.litertlm)</text>
+      <text x="402" y="124" fill="#e2e8f0" font-family="monospace" font-size="11" text-anchor="middle">@mediapipe/tasks-genai (.task)</text>
+      <line x1="310" y1="138" x2="494" y2="138" stroke="#1e293b" stroke-width="1.5"/>
+      <text x="402" y="158" fill="#ffcc33" font-family="monospace" font-size="10.5" text-anchor="middle">Qwen3-0.6B-INT4 / SmolLM-135M</text>
+      <text x="402" y="176" fill="#ffcc33" font-family="monospace" font-size="10.5" text-anchor="middle">Gemma-4-E2B-Web (CacheStorage)</text>
+      <text x="402" y="198" fill="#94a3b8" font-family="monospace" font-size="10" text-anchor="middle">Outputs BadgeDesignSpec JSON</text>
+
+      <!-- Arrow 2 -->
+      <path d="M 518 138 L 554 138" stroke="#ffcc33" stroke-width="2.5" fill="none"/>
+      <polygon points="554,133 566,138 554,143" fill="#ffcc33"/>
+
+      <!-- Box 3: 4-Ink Compositor -->
+      <rect x="570" y="56" width="186" height="166" rx="10" fill="#131c31" stroke="#ffcc33" stroke-width="1.8"/>
+      <text x="663" y="82" fill="#ffcc33" font-family="Helvetica Neue, sans-serif" font-size="13" font-weight="bold" text-anchor="middle">3. 4-Ink BWYR Engine</text>
+      <text x="663" y="108" fill="#e2e8f0" font-family="monospace" font-size="10.5" text-anchor="middle">5 Architectural Themes</text>
+      <text x="663" y="126" fill="#e2e8f0" font-family="monospace" font-size="10.5" text-anchor="middle">5 Procedural Backdrops</text>
+      <text x="663" y="146" fill="#db3727" font-family="monospace" font-size="10.5" text-anchor="middle">Atkinson / Bayer 4x4</text>
+      <text x="663" y="168" fill="#38bdf8" font-family="monospace" font-size="10.5" text-anchor="middle">1st + 2nd Screen Parity</text>
+      <text x="663" y="196" fill="#00a06a" font-family="monospace" font-size="10.5" font-weight="bold" text-anchor="middle">-&gt; 96,000 B .epaper</text>
+    </svg>
+  </div>
+
+  <ul style="margin-bottom: 24px; padding-left: 24px;">
+    <li style="margin-bottom: 12px;"><strong>WebGPU Portrait Cutout &amp; Die-Cut Sticker Outline (<code>src/ai/vision.js</code>):</strong> Using <code>@mediapipe/tasks-vision</code> and the float16 <code>selfie_segmenter.tflite</code> model delegated to the GPU, the studio isolates people from cluttered backgrounds so the geometric 4-ink backdrop shines behind them, optionally tracing a morphological die-cut sticker outline around the foreground mask.</li>
+    <li style="margin-bottom: 12px;"><strong>In-Browser LLM Art Director (<code>src/ai/llm-designer.js</code>):</strong> Users can load lightweight instruction-tuned models directly in the browser over WebGPU via <code>@litert-lm/core</code> (<code>.litertlm</code>) or <code>@mediapipe/tasks-genai</code> (<code>.task</code>), including <strong>Qwen3-0.6B-INT4</strong> (329 MB), <strong>SmolLM-135M-Instruct</strong> (167 MB), or <strong>Gemma-4-E2B-Web</strong>, cached persistently in the browser&#8217;s <code>CacheStorage</code> (or loaded from a local <code>.litertlm</code> / <code>.task</code> file on disk).</li>
+    <li style="margin-bottom: 12px;"><strong>Telemetry-Grounded 4-Ink Themes (<code>src/epaper/ai-layout.js</code>):</strong> Before prompting the model, the studio measures your portrait&#8217;s mean luminance, RMS contrast, and warm-channel ratio. The model combines your natural-language prompt with those optical metrics to emit a validated <code>BadgeDesignSpec</code> JSON that configures five 4-ink architectural themes (<code>cyber-pcb</code>, <code>sunburst-pop</code>, <code>bauhaus-grid</code>, <code>retro-terminal</code>, <code>editorial-minimal</code>), five procedural 4-ink vector backdrops (<code>circuit</code>, <code>sunburst</code>, <code>halftone</code>, <code>bauhaus</code>, <code>matrix-grid</code>), dithering parameters, NeoPixel LED accents, and matching <code>programme.epaper</code> second-screen cards.</li>
+  </ul>
+
+  <!-- Try It Out Box -->
+  <div style="background: #0f172a; color: #f8fafc; border-radius: 12px; padding: 26px 28px; margin: 36px 0; border: 1px solid #334155;">
+    <h3 style="font-family: 'Helvetica Neue', sans-serif; font-size: 20px; font-weight: 700; color: #ffcc33; margin: 0 0 10px 0;">Got a WebAI Summit Badge on Your Desk? Plug It In.</h3>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: #e2e8f0; line-height: 1.6;">
+      Grab a data-capable USB-C cable (or turn on Bluetooth), open the studio in Chrome or Edge, and start hacking. Your first click should be <strong>Full Backup (.ZIP)</strong> on Tab 4 to save a bit-exact snapshot of your stock flash files before flashing custom screens or Roman numeral firmware.
+    </p>
+    <p style="margin: 0; font-family: 'Helvetica Neue', sans-serif; font-size: 15px;">
+      &#128073; <strong>Live WebAI Badge Studio:</strong> <a href="https://rabimba.github.io/webai-badge/" style="color: #38bdf8; text-decoration: underline; font-weight: 700;">https://rabimba.github.io/webai-badge/</a><br/>
+      &#128187; <strong>GitHub Repository &amp; Reverse-Engineered Specs:</strong> <a href="https://github.com/rabimba/webai-badge" style="color: #00a06a; text-decoration: underline; font-weight: 700;">https://github.com/rabimba/webai-badge</a><br/>
+      &#128279; <strong>Original Summit Live-Hack Post:</strong> <a href="https://www.linkedin.com/posts/rabimba_if-you-are-interested-in-the-web-and-on-device-share-7522021163087077376-g-R8/" style="color: #cbd5e1; text-decoration: underline;">LinkedIn Post from Google WebAI Summit</a>
+    </p>
+  </div>
+
+</div>
+<!--===== END BLOGGER PASTE =====-->

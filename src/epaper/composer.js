@@ -212,7 +212,7 @@ export function renderDitheredPhotoBox(sourceImage, backdropImage, state) {
     const dy = (h - drawH) / 2 + (state.panY || 0) * h;
     cctx.drawImage(imgToDraw, dx, dy, drawW, drawH);
 
-    if (useAiBackdrop && state.useAiCutout && state.segmentedCanvas) {
+    if (state.useAiCutout && state.segmentedCanvas) {
       const maskCanvas = document.createElement('canvas');
       maskCanvas.width = w;
       maskCanvas.height = h;
@@ -578,7 +578,9 @@ export function composeSecondScreen(assets, state) {
     themedRect(PHOTO_BOX.x, PHOTO_BOX.y, PHOTO_BOX.w, PHOTO_BOX.h, PHOTO_BOX.radius, '#ffffff', aiOverlay ? aiOverlay.borderColor : '#000000', 4);
 
     const payload = resolveQRPayload(state) || 'https://www.linkedin.com/in/rabimba/';
-    drawCrispQR(ctx, payload, { centerX: 240, topY: 42, boxSize: 9, border: 2 });
+    const testQr2 = encodeQRMatrix(payload, 'M');
+    const secondBoxSize = Math.max(4, Math.min(9, Math.floor(300 / (testQr2.size + 4))));
+    drawCrispQR(ctx, payload, { centerX: 240, topY: 42, boxSize: secondBoxSize, border: 2 });
 
     drawCrispTextLayer(
       ctx,
@@ -605,8 +607,10 @@ export function composeSecondScreen(assets, state) {
         octx.fillText(state.name || 'Rabimba Karanjai', 240, 474);
         octx.font = '700 24px "Space Grotesk", sans-serif';
         octx.fillText(state.company || 'PayPal / GDE', 240, 518);
-        octx.font = '700 18px "JetBrains Mono", monospace';
-        octx.fillText(state.secondScreenTalk || 'WebAI Summit Speaker & Hardware Hacker', 240, 554);
+        const talkStr = state.secondScreenTalk || 'WebAI Summit Speaker & Hardware Hacker';
+        const talkFontPx = talkStr.length > 38 ? 14 : talkStr.length > 28 ? 16 : 18;
+        octx.font = `700 ${talkFontPx}px "JetBrains Mono", monospace`;
+        octx.fillText(talkStr, 240, 554, 356);
       },
       [0, 0, 0]
     );

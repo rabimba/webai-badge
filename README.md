@@ -2,6 +2,10 @@
 
 End-to-end browser studio and firmware modder for the **WebAI Summit 2026 Espruino 4-Color ePaper Badge** (`ESP32-C3`, `480×800` portrait / `800×480` raw buffer, 2bpp Black/White/Yellow/Red).
 
+**Live Studio:** [https://rabimba.github.io/webai-badge/](https://rabimba.github.io/webai-badge/)
+
+![WebAI Badge Studio End-to-End Demo](./public/demo/webai-badge-studio-demo.gif)
+
 Zero external build dependencies — runs anywhere and deploys directly to **GitHub Pages**.
 
 ---
@@ -18,24 +22,25 @@ Zero external build dependencies — runs anywhere and deploys directly to **Git
 
 3. **Portrait Studio & In-Browser WebAI Background Cutout**
    - Upload any photo, snap live from your webcam, or re-crop the WebAI Summit stage shot with smart framing presets (`Full Stage + Logo`, `Two-Shot + Peace`, `Faces Close-Up`, `Solo Portrait`).
-   - Toggle **WebAI Background Cutout** (MediaPipe SelfieSegmenter WebGPU/WASM with offline portrait matte fallback) to isolate people in front of the WebAI geometric yellow/red sunburst backdrop before dithering.
+   - Toggle **WebAI Background Cutout** (MediaPipe SelfieSegmenter WebGPU/WASM with offline portrait matte fallback) to isolate people in front of the WebAI geometric yellow/red sunburst backdrop before dithering, with an optional 4-ink die-cut sticker outline.
    - 4 dithering algorithms tailored for warm BWYR ePaper: **Atkinson**, **Floyd–Steinberg**, **Ordered Bayer 4×4**, and **Posterized 4-Ink**, with live Contrast, Brightness, Warm Gamut Blend, and Edge Sharpness sliders.
 
-3. **Crisp 1-Bit Pixel-Aligned QR Code Generator**
+4. **Crisp 1-Bit Pixel-Aligned QR Code Generator**
    - Self-contained ISO/IEC 18004 QR encoder (`src/epaper/qrcode.js`) that renders monochrome pixel-snapped modules directly onto the 2bpp buffer (bypassing dithering so phone cameras scan instantaneously).
    - Supports **LinkedIn / URL**, **vCard Contact**, and **Wi-Fi Network** payloads.
 
-4. **Second Screen Designer (`programme.epaper` / `BTN1`)**
+5. **Second Screen Designer (`programme.epaper` / `BTN1`)**
    - Customize the secondary screen toggled by pressing physical **BTN1** on the badge:
      - **Giant QR Speaker Card**
      - **WebAI Summit Live Agenda**
      - **Full-Bleed 4-Ink Poster**
 
-5. **Firmware & Dynamic Counter Modder (`.bootcde`)**
+6. **Firmware & Dynamic Counter Modder (`.bootcde`) + Wi-Fi Provisioning (`wifi.json`)**
    - Binary patcher (`src/epaper/bootcde-patcher.js`) for `.bootcde` that modifies `showBadge()` to render the bottom-left connection counter in **Roman Numerals (`XIV`)**, **Arabic (`14`)**, **Hexadecimal (`0xE`)**, or **Binary (`1110`)**.
    - Automatically widens the `Badge.showImageFileRendering("badge.epaper", 64, ...)` strip from `48px` to `64px` so wide Roman numerals never clip, and preserves the exact 144-byte `[32, 35, 129, 0, ...]` transparent 1-bit person silhouette icon.
+   - Read and write `wifi.json` primary and fallback network credentials over Web Serial or Web Bluetooth with end-to-end `CRC32` verification.
 
-6. **Web Serial (USB-C) & Web Bluetooth (BLE) Live Flashing + Full Backup**
+7. **Web Serial (USB-C) & Web Bluetooth (BLE) Live Flashing + Full Backup**
    - Connects directly from Chrome/Edge over **Web Serial** (`115200` baud with `64-byte / 3ms` packet pacing so the ESP32-C3 USB-JTAG FIFO never drops bytes) or **Web Bluetooth** (Nordic UART `6e400001-b5a3-f393-e0a9-e50e24dcca9e`).
    - Verifies every flashed file with `E.CRC32(require("Storage").read(...))`.
    - Interactive **Attendee Connection Constellation Graph** + searchable table + CSV/JSON export + one-click **Full Flash PKZIP (`.zip`) Backup & Restore**.

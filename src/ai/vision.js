@@ -70,18 +70,19 @@ function offlinePortraitMatte(imageData) {
         if (d < minBgDist) minBgDist = d;
       }
 
-      // Portrait spatial prior (elliptical torso + head region)
-      const dx = (nx - 0.46) / 0.44;
-      const dy = (ny - 0.62) / 0.46;
-      const ellipse = Math.max(0, 1 - (dx * dx + dy * dy) * 0.65);
+      // Portrait spatial prior (elliptical torso + two-person stage region)
+      const dx = (nx - 0.39) / 0.39;
+      const dy = (ny - 0.64) / 0.44;
+      const ellipse = Math.max(0, 1 - (dx * dx + dy * dy) * 0.68);
 
       // Skin/hair/clothing likelihood vs bright projector screen at top-right
       const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-      const isBrightScreen = ny < 0.45 && nx > 0.34 && lum > 175 && Math.abs(r - b) < 45;
+      const isBrightScreen = ny < 0.46 && nx > 0.44 && lum > 165 && Math.abs(r - b) < 48;
+      const isTopBackdrop = ny < 0.24 || (ny < 0.34 && (nx < 0.12 || nx > 0.72));
 
-      let fg = Math.min(1, (minBgDist / 62) * 0.65 + ellipse * 0.65);
-      if (isBrightScreen) fg *= 0.08;
-      if (ny > 0.44 && nx < 0.76 && ellipse > 0.32) fg = Math.max(fg, 0.92);
+      let fg = Math.min(1, (minBgDist / 64) * 0.58 + ellipse * 0.72);
+      if (isBrightScreen || isTopBackdrop) fg *= 0.08;
+      if (ny > 0.46 && nx > 0.08 && nx < 0.74 && ellipse > 0.34) fg = Math.max(fg, 0.92);
 
       alpha[y * width + x] = fg > 0.52 ? 1.0 : fg < 0.35 ? 0.0 : (fg - 0.35) / 0.17;
     }
@@ -153,7 +154,7 @@ export async function segmentPortraitInBrowser(sourceImg) {
  */
 export const SMART_CROP_PRESETS = {
   stage: { label: 'Full Stage + Logo', zoom: 1.0, panX: 0.0, panY: -0.05 },
-  pair: { label: 'Two-Shot + Peace', zoom: 1.28, panX: -0.10, panY: 0.14 },
-  closeup: { label: 'Faces Close-Up', zoom: 1.95, panX: -0.24, panY: 0.05 },
-  solo: { label: 'Solo Portrait', zoom: 2.65, panX: -0.32, panY: 0.02 },
+  pair: { label: 'Two-Shot + Peace', zoom: 1.26, panX: 0.08, panY: 0.06 },
+  closeup: { label: 'Faces Close-Up', zoom: 1.65, panX: 0.18, panY: 0.04 },
+  solo: { label: 'Solo Portrait', zoom: 2.25, panX: 0.42, panY: 0.02 },
 };
