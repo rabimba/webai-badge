@@ -4,8 +4,10 @@ import {
   EPAPER_NAMES,
   nearestPaletteIndex,
   decodeEpaperToRGBA,
+  extractPhotoBoxFromEpaperBytes,
 } from './epaper/codec.js';
 import {
+  PHOTO_BOX,
   composePrimaryBadge,
   composeSecondScreen,
 } from './epaper/composer.js';
@@ -33,6 +35,7 @@ import { buildWifiJson, parseWifiJson } from './transport/wifi-provisioning.js';
 const assets = {
   cleanBase: null,
   rabimbaBase: null,
+  deviceBase: null,
   photoBackdrop: null,
   stagePhoto: null,
   currentPhoto: null,
@@ -57,6 +60,9 @@ const state = {
   company: 'PayPal / GDE',
   handle: '@rabimba',
   forceCustomCard: false,
+  deviceIdentityName: null,
+  deviceIdentityCompany: null,
+  pulledBadgeEpaperBytes: null,
 
   qrEnabled: true,
   qrMode: 'url', // 'url' | 'vcard' | 'wifi' | 'off'
@@ -1299,31 +1305,129 @@ function bindEvents() {
     triggerDownload(zipBytes, 'webai-badge-full-backup.zip', 'application/zip');
   });
 
+  const applyPulledBadgeEpaper = (epaperBytes, sourceLabel = 'connected badge') => {
+    const extracted = extractPhotoBoxFromEpaperBytes(epaperBytes, PHOTO_BOX);
+    const fullCanvas = document.createElement('canvas');
+    fullCanvas.width = extracted.width;
+    fullCanvas.height = extracted.height;
+    fullCanvas
+      .getContext('2d')
+      .putImageData(new ImageData(extracted.fullRgba, extracted.width, extracted.height), 0, 0);
+
+    const photoCanvas = document.createElement('canvas');
+    photoCanvas.width = extracted.photoWidth;
+    photoCanvas.height = extracted.photoHeight;
+    photoCanvas
+      .getContext('2d')
+      .putImageData(
+        new ImageData(extracted.photoRgba, extracted.photoWidth, extracted.photoHeight),
+        0,
+        0
+      );
+    photoCanvas.isDeviceEpaperPhoto = true;
+
+    assets.deviceBase = fullCanvas;
+    assets.currentPhoto = photoCanvas;
+    state.pulledBadgeEpaperBytes = epaperBytes;
+
+    // Reset framing and overlays so the pulled badge renders 100% lossless first
+    state.zoom = 1.0;
+    state.panX = 0.0;
+    state.panY = 0.0;
+    state.useAiCutout = false;
+    state.segmentedCanvas = null;
+    $('#btnToggleAiCutout')?.classList.remove('active');
+    if ($('#aiCutoutStateText')) $('#aiCutoutStateText').textContent = 'OFF';
+    state.aiLayout.enabled = false;
+    const reasonBox = $('#aiReasoningBox');
+    if (reasonBox) reasonBox.hidden = true;
+
+    // Sync attendee name/company from device id.json if available
+    if (state.deviceInfo?.id?.name) {
+      state.name = String(state.deviceInfo.id.name);
+      $('#inpName').value = state.name;
+    }
+    if (state.deviceInfo?.id?.company) {
+      state.company = String(state.deviceInfo.id.company);
+      $('#inpCompany').value = state.company;
+    }
+    state.deviceIdentityName = state.name.trim();
+    state.deviceIdentityCompany = state.company.trim();
+    state.forceCustomCard = false;
+
+    // Default QR to 'off' after pull so the device's original lower card is untouched until toggled
+    state.qrMode = 'off';
+    state.qrEnabled = false;
+    $$('.qr-pill').forEach((b) =>
+      b.classList.toggle('active', b.getAttribute('data-qrmode') === 'off')
+    );
+    if ($('#qrFieldsUrl')) $('#qrFieldsUrl').hidden = true;
+    if ($('#qrFieldsVcard')) $('#qrFieldsVcard').hidden = true;
+    if ($('#qrFieldsWifi')) $('#qrFieldsWifi').hidden = true;
+
+    syncAiPillsUI();
+    syncCropSliders();
+    renderActiveBadgeCanvas();
+    appendConsoleLog({
+      time: new Date().toLocaleTimeString(),
+      msg: `Pulled & preserved badge.epaper (${epaperBytes.length.toLocaleString()} bytes, CRC32: ${extracted.crc}) from ${sourceLabel}.`,
+      type: 'ok',
+    });
+  };
+
+  $('#btnPullBadgePhoto')?.addEventListener('click', async () => {
+    try {
+      await ensureConnectedForFlash();
+      $('#consoleBody').hidden = false;
+      setFlashProgress(0, 'Pulling badge.epaper...');
+      const bytes = await badgeClient.readStorageFile(
+        'badge.epaper',
+        96000,
+        (frac, done, total) =>
+          setFlashProgress(frac, `Pulling ${Math.round(frac * 100)}% (${done}/${total}B)`)
+      );
+      applyPulledBadgeEpaper(bytes, state.deviceInfo?.id?.serial || 'connected badge');
+      await saveSafetySnapshot(state.deviceInfo?.id?.serial || 'latest', {
+        badgeEpaper: bytes,
+        connections: state.connections,
+        scanIds: state.scanIds,
+      });
+      setTimeout(() => setFlashProgress(null), 1800);
+    } catch (err) {
+      setFlashProgress(null);
+      appendConsoleLog({
+        time: new Date().toLocaleTimeString(),
+        msg: `Pull badge.epaper failed: ${err.message || err}`,
+        type: 'warn',
+      });
+    }
+  });
+
   $('#inputRestoreFile').addEventListener('change', async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const buf = await file.arrayBuffer();
     if (file.name.endsWith('.epaper')) {
-      const rgba = decodeEpaperToRGBA(new Uint8Array(buf));
-      const c = document.createElement('canvas');
-      c.width = 480;
-      c.height = 800;
-      c.getContext('2d').putImageData(new ImageData(rgba, 480, 800), 0, 0);
-      $('#badgePreviewCanvas').getContext('2d').drawImage(c, 0, 0);
-      appendConsoleLog({
-        time: new Date().toLocaleTimeString(),
-        msg: `Loaded raw ${file.name} (96,000 bytes) into preview.`,
-        type: 'ok',
-      });
+      applyPulledBadgeEpaper(new Uint8Array(buf), file.name);
     } else if (file.name.endsWith('.zip')) {
       const entries = await parseZipArchive(buf);
+      if (entries['id.json']) {
+        try {
+          const idObj = JSON.parse(new TextDecoder().decode(entries['id.json']));
+          state.deviceInfo = { ...(state.deviceInfo || {}), id: idObj };
+        } catch {}
+      }
       if (entries['connections.json']) {
         state.connections = JSON.parse(new TextDecoder().decode(entries['connections.json']));
         state.connectionCount = state.connections.length;
         $('#inpConnectionCount').value = String(state.connectionCount);
         renderConnectionsUI();
       }
-      renderActiveBadgeCanvas();
+      if (entries['badge.epaper'] && entries['badge.epaper'].length === 96000) {
+        applyPulledBadgeEpaper(entries['badge.epaper'], `${file.name} (badge.epaper)`);
+      } else {
+        renderActiveBadgeCanvas();
+      }
       appendConsoleLog({
         time: new Date().toLocaleTimeString(),
         msg: `Restored ${Object.keys(entries).length} files from ${file.name}.`,
@@ -1333,7 +1437,11 @@ function bindEvents() {
   });
 
   $('#btnRestoreFactory').addEventListener('click', () => {
+    assets.deviceBase = null;
     assets.currentPhoto = assets.stagePhoto;
+    state.pulledBadgeEpaperBytes = null;
+    state.deviceIdentityName = null;
+    state.deviceIdentityCompany = null;
     state.useAiCutout = false;
     state.segmentedCanvas = null;
     $('#btnToggleAiCutout').classList.remove('active');

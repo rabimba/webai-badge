@@ -182,6 +182,22 @@ export function renderDitheredPhotoBox(sourceImage, backdropImage, state) {
     state.aiLayout.backdropPattern &&
     state.aiLayout.backdropPattern !== 'orig';
 
+  // Lossless pass-through when using a pulled 4-color device portrait at default framing
+  if (
+    sourceImage?.isDeviceEpaperPhoto &&
+    !state.useAiCutout &&
+    !useAiBackdrop &&
+    Math.abs((state.zoom ?? 1.0) - 1.0) < 1e-4 &&
+    Math.abs(state.panX ?? 0.0) < 1e-4 &&
+    Math.abs(state.panY ?? 0.0) < 1e-4
+  ) {
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = w;
+    outCanvas.height = h;
+    outCanvas.getContext('2d').drawImage(sourceImage, 0, 0, w, h);
+    return outCanvas;
+  }
+
   let procBgRgba = null;
   if (useAiBackdrop) {
     procBgRgba = renderProceduralBackdropRGBA(
@@ -295,15 +311,26 @@ export function composePrimaryBadge(assets, state) {
   rawCanvas.height = 800;
   const ctx = rawCanvas.getContext('2d');
 
-  // Choose base template: keep original crisp Rabimba Karanjai / PayPal GDE middle card if unchanged
+  // Choose base template: keep pulled device badge base or original crisp Rabimba Karanjai / PayPal GDE middle card if unchanged
   const aiActive = Boolean(state.aiLayout?.enabled);
+  const isDeviceIdentityUnchanged =
+    Boolean(assets.deviceBase) &&
+    !aiActive &&
+    !state.forceCustomCard &&
+    state.name.trim() === (state.deviceIdentityName ?? state.name.trim()) &&
+    state.company.trim() === (state.deviceIdentityCompany ?? state.company.trim());
+
   const isDefaultIdentity =
     !aiActive &&
     !state.forceCustomCard &&
     state.name.trim() === 'Rabimba Karanjai' &&
     state.company.trim() === 'PayPal / GDE';
 
-  const baseTemplate = isDefaultIdentity && assets.rabimbaBase ? assets.rabimbaBase : assets.cleanBase;
+  const baseTemplate = isDeviceIdentityUnchanged
+    ? assets.deviceBase
+    : isDefaultIdentity && assets.rabimbaBase
+      ? assets.rabimbaBase
+      : assets.cleanBase;
   if (baseTemplate) {
     ctx.drawImage(baseTemplate, 0, 0, 480, 800);
   } else {
@@ -327,7 +354,7 @@ export function composePrimaryBadge(assets, state) {
       PHOTO_BOX,
       NAME_CARD,
     });
-  } else if (!isDefaultIdentity) {
+  } else if (!isDefaultIdentity && !isDeviceIdentityUnchanged) {
     drawCrispTextLayer(
       ctx,
       480,

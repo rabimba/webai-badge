@@ -113,11 +113,39 @@ export function encodeRGBAToEpaper(rgba) {
         else if (r === 0 && g === 0 && b === 0) idx = 0;
         else idx = nearestPaletteIndex(r, g, b);
 
-        inkCounts[idx]++;
+    inkCounts[idx]++;
         packed |= idx << ((3 - sub) * 2);
       }
       out[rowByteOffset + bx] = packed;
     }
   }
   return { bytes: out, crc: crc32(out), inkCounts };
+}
+
+/**
+ * Decodes a 96,000-byte .epaper buffer into both the full 480x800 upright RGBA buffer
+ * and a lossless cropped portrait RGBA buffer (defaults to PHOTO_BOX: x=47, y=17, w=386, h=389)
+ * so users can pull and preserve their badge's existing portrait on device.
+ */
+export function extractPhotoBoxFromEpaperBytes(
+  epaperBytes,
+  box = { x: 47, y: 17, w: 386, h: 389 }
+) {
+  const fullRgba = decodeEpaperToRGBA(epaperBytes);
+  const { x, y, w, h } = box;
+  const photoRgba = new Uint8ClampedArray(w * h * 4);
+  for (let row = 0; row < h; row++) {
+    const srcStart = ((y + row) * 480 + x) * 4;
+    const srcEnd = srcStart + w * 4;
+    photoRgba.set(fullRgba.subarray(srcStart, srcEnd), row * w * 4);
+  }
+  return {
+    fullRgba,
+    photoRgba,
+    width: 480,
+    height: 800,
+    photoWidth: w,
+    photoHeight: h,
+    crc: crc32(epaperBytes),
+  };
 }

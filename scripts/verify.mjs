@@ -1,7 +1,12 @@
 // End-to-End Automated Verification Suite for WebAI Badge Studio
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import { decodeEpaperToRGBA, encodeRGBAToEpaper, crc32 } from '../src/epaper/codec.js';
+import {
+  decodeEpaperToRGBA,
+  encodeRGBAToEpaper,
+  extractPhotoBoxFromEpaperBytes,
+  crc32,
+} from '../src/epaper/codec.js';
 import { preprocessForBWYR, ditherToBWYR } from '../src/epaper/dither.js';import { encodeQRMatrix } from '../src/epaper/qrcode.js';
 import { patchBootcde, formatCounterPreview, PERSON_ICON_B64 } from '../src/epaper/bootcde-patcher.js';
 import { createZipArchive, parseZipArchive } from '../src/storage/zip.js';
@@ -269,3 +274,28 @@ for (const fnName of ['renderProceduralBackdropRGBA', 'drawAiPrimaryLayoutCanvas
   }
 }
 console.log('[PASS] Composer ai-layout import wiring (no runtime ReferenceError)');
+
+// 14. Pull & preserve existing badge.epaper picture from device (lossless 480x800 full + 386x389 portrait crop)
+const extracted = extractPhotoBoxFromEpaperBytes(rawEpaper, { x: 47, y: 17, w: 386, h: 389 });
+assert.equal(extracted.width, 480);
+assert.equal(extracted.height, 800);
+assert.equal(extracted.fullRgba.length, 480 * 800 * 4);
+assert.equal(extracted.photoWidth, 386);
+assert.equal(extracted.photoHeight, 389);
+assert.equal(extracted.photoRgba.length, 386 * 389 * 4);
+assert.equal(extracted.crc, 1139474309);
+// Verify top-left pixel of cropped PHOTO_BOX matches pixel (47, 17) of fullRgba
+const fullIdx = (17 * 480 + 47) * 4;
+assert.deepEqual(
+  Array.from(extracted.photoRgba.slice(0, 4)),
+  Array.from(extracted.fullRgba.slice(fullIdx, fullIdx + 4)),
+  'Cropped portrait top-left pixel must match (47, 17) in full badge.epaper RGBA'
+);
+assert.throws(() => extractPhotoBoxFromEpaperBytes(new Uint8Array(100)), /96000/);
+
+// Verify UI button #btnPullBadgePhoto is wired in index.html and src/main.js
+const indexHtml = fs.readFileSync('index.html', 'utf8');
+const mainJs = fs.readFileSync('src/main.js', 'utf8');
+assert.ok(indexHtml.includes('id="btnPullBadgePhoto"'), 'index.html must include #btnPullBadgePhoto');
+assert.ok(mainJs.includes('btnPullBadgePhoto'), 'src/main.js must wire #btnPullBadgePhoto');
+console.log('[PASS] Device badge.epaper pull & lossless portrait extraction (386x389 + 480x800)');
