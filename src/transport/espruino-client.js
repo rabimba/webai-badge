@@ -10,6 +10,19 @@ const NORDIC_RX = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const WAKE_HINT =
+  'press BTN1 to wake it (or hold BTN2 until the LEDs turn blue for connectable mode), then click Connect USB-C again within a few seconds.';
+
+// Runs once right after the USB-C handshake. RAM-only; reverted by load() on disconnect.
+// _ka() is an idle watchdog: if the Studio sends nothing for 10 min (tab closed, cable pulled),
+// the badge reloads its firmware and resumes the normal sleep cycle instead of draining the battery.
+const KEEP_AWAKE_IDLE_MS = 600000;
+const KEEP_AWAKE_JS =
+  'clearInterval();clearTimeout();clearWatch();' +
+  `global._ka=function(){if(global._kaT)clearTimeout(_kaT);_kaT=setTimeout(load,${KEEP_AWAKE_IDLE_MS});};_ka();` +
+  'if(global.Badge)Badge.sleep=function(){print("[Studio] Badge.sleep() suppressed while USB-C connected");};' +
+  'print("<<<START>>>OK<<<END>>>")';
+
 export function uint8ToBase64(bytes) {
   let binary = '';
   const len = bytes.byteLength;
@@ -58,23 +71,56 @@ export class EspruinoBadgeClient {
     if (this.isConnected) await this.disconnect();
 
     this.log('Requesting USB-C serial port (115200 baud)...', 'cmd');
-    const port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 115200, bufferSize: 65536 });
+    let port;
+    try {
+      port = await navigator.serial.requestPort();
+    } catch (err) {
+      if (err && err.name === 'NotFoundError') {
+        throw new Error(
+          `No serial port selected. If the badge is not listed it is in deep sleep (USB is off while asleep): ${WAKE_HINT}`
+        );
+      }
+      throw err;
+    }
+    try {
+      await port.open({ baudRate: 115200, bufferSize: 65536 });
+    } catch (err) {
+      throw new Error(
+        `Could not open the badge serial port (${err.message || err}). Close any other app using it (Espruino Web IDE, screen, Arduino serial monitor, another Studio tab) and retry.`
+      );
+    }
 
     this.port = port;
     this.writer = port.writable.getWriter();
     this.mode = 'serial';
     this.rxBuffer = '';
-    this._startSerialReadLoop();
+    this._readLoopDone = this._startSerialReadLoop();
 
-    // Send Ctrl+C twice to clear any partial REPL line without resetting
-    await this._writeRawBytes(new Uint8Array([0x03, 0x03, 0x0a]));
-    await sleep(150);
-    this.rxBuffer = '';
+    try {
+      // Send Ctrl+C twice to clear any partial REPL line without resetting
+      await this._writeRawBytes(new Uint8Array([0x03, 0x03, 0x0a]));
+      await sleep(150);
+      this.rxBuffer = '';
 
-    this.onStatusChange({ connected: true, mode: 'serial' });
-    this.log('Connected via USB-C Web Serial (ESP32-C3 CDC).', 'ok');
-    return this.fetchDeviceInfo();
+      // The firmware deep-sleeps (Badge.sleep) after every screen update and after a ~10s idle
+      // animation. ESP32-C3 deep sleep powers down USB-Serial-JTAG, so the port goes dead mid-session.
+      // Cancel pending firmware timers/watches and no-op Badge.sleep in RAM; disconnect() runs load()
+      // to restore the normal firmware cycle. This handshake doubles as a fast "is it awake?" probe.
+      try {
+        await this.runCommand(KEEP_AWAKE_JS, { timeout: 3000 });
+      } catch {
+        throw new Error(`Badge did not respond over USB-C. It is most likely asleep: ${WAKE_HINT}`);
+      }
+      this._sleepSuppressed = true;
+
+      const info = await this.fetchDeviceInfo();
+      this.onStatusChange({ connected: true, mode: 'serial' });
+      this.log('Connected via USB-C Web Serial (ESP32-C3 CDC).', 'ok');
+      return info;
+    } catch (err) {
+      await this.disconnect({ silent: true });
+      throw err;
+    }
   }
 
   async connectBluetooth() {
@@ -152,12 +198,26 @@ export class EspruinoBadgeClient {
     }
   }
 
-  async disconnect() {
+  async disconnect({ silent = false } = {}) {
     const prevMode = this.mode;
+    if (this._sleepSuppressed && prevMode === 'serial' && this.writer) {
+      // Reload firmware so the badge resumes its normal display/sleep cycle (saves battery).
+      try {
+        await this._writeRawBytes(new TextEncoder().encode('\x10load()\n'));
+        await sleep(50);
+      } catch {}
+    }
+    this._sleepSuppressed = false;
     this.mode = null;
     try {
       if (this.reader) await this.reader.cancel();
     } catch {}
+    // Wait for the read loop to release its lock; port.close() rejects while a stream is locked,
+    // which previously left the port open and made the next connect fail with "port is already open".
+    try {
+      if (this._readLoopDone) await this._readLoopDone;
+    } catch {}
+    this._readLoopDone = null;
     try {
       if (this.writer) {
         this.writer.releaseLock();
@@ -165,18 +225,16 @@ export class EspruinoBadgeClient {
       }
     } catch {}
     try {
-      if (this.port) {
-        await this.port.close();
-        this.port = null;
-      }
+      if (this.port) await this.port.close();
     } catch {}
+    this.port = null;
     try {
       if (this.bleDevice && this.bleDevice.gatt.connected) {
         this.bleDevice.gatt.disconnect();
       }
     } catch {}
     this.onStatusChange({ connected: false, mode: null });
-    if (prevMode) this.log(`Disconnected (${prevMode}).`, 'info');
+    if (prevMode && !silent) this.log(`Disconnected (${prevMode}).`, 'info');
   }
 
   async _writeRawBytes(bytes) {
@@ -208,7 +266,8 @@ export class EspruinoBadgeClient {
     if (!this.isConnected) throw new Error('Badge is not connected');
     this.rxBuffer = '';
     const encoder = new TextEncoder();
-    const payload = encoder.encode('\x10' + js + '\n');
+    const keepAlive = this._sleepSuppressed ? 'if(global._ka)_ka();' : '';
+    const payload = encoder.encode('\x10' + keepAlive + js + '\n');
     await this._writeRawBytes(payload);
 
     const t0 = performance.now();

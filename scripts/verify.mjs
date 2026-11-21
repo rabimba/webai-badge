@@ -299,3 +299,92 @@ const mainJs = fs.readFileSync('src/main.js', 'utf8');
 assert.ok(indexHtml.includes('id="btnPullBadgePhoto"'), 'index.html must include #btnPullBadgePhoto');
 assert.ok(mainJs.includes('btnPullBadgePhoto'), 'src/main.js must wire #btnPullBadgePhoto');
 console.log('[PASS] Device badge.epaper pull & lossless portrait extraction (386x389 + 480x800)');
+
+// 15. USB-C Web Serial connect against a mock ESP32-C3 Espruino port.
+// The badge firmware calls Badge.sleep() (ESP32-C3 deep sleep) after every screen update and
+// after a ~10s idle animation; deep sleep powers down USB-Serial-JTAG. The client must
+// (a) neutralise the firmware sleep timers so the session survives, (b) fail fast with an
+// actionable "badge is asleep" error and release the port, and (c) restore firmware on disconnect.
+import { EspruinoBadgeClient } from '../src/transport/espruino-client.js';
+
+class MockEspruinoPort {
+  constructor({ awake = true } = {}) {
+    this.awake = awake;
+    this.isOpen = false;
+    this.received = '';
+    this.closeCalls = 0;
+  }
+  async open() {
+    if (this.isOpen) throw new Error('InvalidStateError: The port is already open.');
+    this.isOpen = true;
+    this.received = '';
+    const enc = new TextEncoder();
+    let line = '';
+    this.readable = new ReadableStream({
+      start: (c) => { this._rx = c; },
+      cancel: () => {},
+    });
+    this.writable = new WritableStream({
+      write: (chunk) => {
+        const text = new TextDecoder().decode(chunk);
+        this.received += text;
+        if (!this.awake) return; // deep sleep: USB-Serial-JTAG is unpowered, nothing answers
+        for (const ch of text) {
+          if (ch !== '\n') { line += ch; continue; }
+          if (line.includes('<<<END>>>')) {
+            const body = line.includes('process.env') ? '{"env":{"VERSION":"2v25"},"files":[]}' : 'OK';
+            setTimeout(() => this._rx.enqueue(enc.encode(`<<<START>>>${body}<<<END>>>\r\n>`)), 5);
+          }
+          line = '';
+        }
+      },
+    });
+  }
+  async close() {
+    this.closeCalls++;
+    if (this.readable.locked || this.writable.locked) throw new TypeError('Cannot close a locked stream');
+    this.isOpen = false;
+  }
+}
+
+async function withMockSerial(port, fn) {
+  Object.defineProperty(navigator, 'serial', { value: { requestPort: async () => port }, configurable: true });
+  try { return await fn(); } finally { delete navigator.serial; }
+}
+
+{
+  // Awake badge: connect succeeds, sleep suppression is sent before the info read
+  const port = new MockEspruinoPort({ awake: true });
+  const client = new EspruinoBadgeClient();
+  const info = await withMockSerial(port, () => client.connectSerial());
+  assert.equal(info.env.VERSION, '2v25');
+  const keepAwakeIdx = port.received.indexOf('Badge.sleep=');
+  assert.ok(keepAwakeIdx !== -1, 'connectSerial must override Badge.sleep so firmware timers cannot deep-sleep the badge mid-session');
+  assert.ok(keepAwakeIdx < port.received.indexOf('process.env'), 'sleep suppression must happen before the device-info read');
+  assert.ok(port.received.includes('clearTimeout()'), 'pending firmware sleep timeouts must be cleared');
+  assert.ok(port.received.includes('setTimeout(load,'), 'idle watchdog must restore firmware if the host goes away');
+  assert.ok(port.received.includes('\x10if(global._ka)_ka();print("<<<START>>>"+JSON.stringify({env:process.env'), 'commands after handshake must reset the idle watchdog');
+
+  // Disconnect restores normal firmware behaviour and really closes the port
+  await client.disconnect();
+  assert.ok(port.received.includes('load()'), 'disconnect must reload firmware (load()) so the badge resumes its normal sleep cycle');
+  assert.equal(port.isOpen, false, 'disconnect must actually close the port (read lock released first)');
+  assert.equal(client.isConnected, false);
+
+  // Reconnecting to the same port works (no "port is already open")
+  const info2 = await withMockSerial(port, () => client.connectSerial());
+  assert.equal(info2.env.VERSION, '2v25');
+  await client.disconnect();
+}
+
+{
+  // Sleeping badge: connect fails fast with an actionable message and leaves the port closed
+  const port = new MockEspruinoPort({ awake: false });
+  const client = new EspruinoBadgeClient();
+  const t0 = performance.now();
+  await assert.rejects(() => withMockSerial(port, () => client.connectSerial()), /asleep/i);
+  assert.ok(performance.now() - t0 < 6000, 'sleeping-badge detection must not wait the full 10s info timeout');
+  assert.equal(client.isConnected, false, 'failed handshake must not leave the client in a half-connected state');
+  assert.equal(port.isOpen, false, 'failed handshake must close the port so the next attempt can reopen it');
+}
+console.log('[PASS] USB-C Web Serial connect: sleep suppression, asleep detection, clean disconnect/reconnect');
